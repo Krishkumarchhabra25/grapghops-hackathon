@@ -1,0 +1,24 @@
+# Databases only. Run the API on your machine with uvicorn (see README).
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: graphops-falkordb
+    ports:
+      - '6379:6379'   # graph database
+      - '3000:3000'   # FalkorDB Browser
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: graphops-redis
+    ports:
+      - '6380:6379'   # host 6380 so it does not clash with FalkorDB
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  falkordb_data:
+  redis_data:

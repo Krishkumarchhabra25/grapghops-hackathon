@@ -1,0 +1,19 @@
+GRAPHOPS BRAIN — TYPESCRIPT PROJECT — START HERE
+
+1. Install Node.js 20+ (Node.js 22 recommended).
+2. Extract this ZIP folder.
+3. Open a terminal in the extracted graphops-brain folder.
+4. Run:
+     npm install
+     npm run dev
+5. Open the localhost URL shown in the terminal (usually http://localhost:5173).
+
+The root path (/) opens the dashboard immediately.
+To view the auth screens open /login, /signup, /forgot-password, or /sso.
+The sign-in form has pre-filled demo credentials: krish@graphops.dev / graphops-demo.
+
+This project uses React + TypeScript (.tsx/.ts) with Tailwind CSS.
+
+This is a frontend-only prototype. Actions and data are simulated locally; no real API,
+FalkorDB server, production systems, emails, or identity provider are connected.
+See README.md for feature list, project structure, and next backend integration steps.
