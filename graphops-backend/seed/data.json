@@ -1,0 +1,338 @@
+{
+  "nodes": [
+    {
+      "label": "Service",
+      "properties": {
+        "id": "svc-checkout",
+        "name": "checkout-api",
+        "env": "Production",
+        "status": "Degraded",
+        "health": 45,
+        "latency_ms": 850.5,
+        "error_rate": 0.12,
+        "version": "2.1.0",
+        "description": "Handles customer checkout and payment processing."
+      }
+    },
+    {
+      "label": "Service",
+      "properties": {
+        "id": "svc-payment-gateway",
+        "name": "payment-gateway",
+        "env": "Production",
+        "status": "Healthy",
+        "health": 99,
+        "latency_ms": 120.0,
+        "error_rate": 0.01,
+        "version": "3.4.1",
+        "description": "Routes payment requests to external providers."
+      }
+    },
+    {
+      "label": "Service",
+      "properties": {
+        "id": "svc-subscription",
+        "name": "subscription-service",
+        "env": "Production",
+        "status": "Healthy",
+        "health": 98,
+        "latency_ms": 150.0,
+        "error_rate": 0.02,
+        "version": "1.5.0",
+        "description": "Manages user subscriptions and recurring billing."
+      }
+    },
+    {
+      "label": "Service",
+      "properties": {
+        "id": "svc-auth",
+        "name": "auth-service",
+        "env": "Production",
+        "status": "Healthy",
+        "health": 99,
+        "latency_ms": 45.0,
+        "error_rate": 0.0,
+        "version": "4.0.0",
+        "description": "Authentication and authorization service."
+      }
+    },
+    {
+      "label": "Service",
+      "properties": {
+        "id": "svc-inventory",
+        "name": "inventory-service",
+        "env": "Production",
+        "status": "Healthy",
+        "health": 95,
+        "latency_ms": 200.0,
+        "error_rate": 0.05,
+        "version": "2.2.0",
+        "description": "Tracks product inventory."
+      }
+    },
+    {
+      "label": "Service",
+      "properties": {
+        "id": "svc-shipping",
+        "name": "shipping-service",
+        "env": "Production",
+        "status": "Healthy",
+        "health": 97,
+        "latency_ms": 300.0,
+        "error_rate": 0.03,
+        "version": "1.1.0",
+        "description": "Calculates shipping rates and tracks deliveries."
+      }
+    },
+    {
+      "label": "Service",
+      "properties": {
+        "id": "svc-notification",
+        "name": "notification-service",
+        "env": "Production",
+        "status": "Healthy",
+        "health": 99,
+        "latency_ms": 80.0,
+        "error_rate": 0.0,
+        "version": "1.0.0",
+        "description": "Sends emails and push notifications."
+      }
+    },
+    {
+      "label": "Dependency",
+      "properties": {
+        "id": "dep-payment-sdk-3-2",
+        "name": "payment-sdk",
+        "version": "3.2.0",
+        "kind": "library"
+      }
+    },
+    {
+      "label": "Dependency",
+      "properties": {
+        "id": "dep-orders-db",
+        "name": "orders-db",
+        "version": "12.0",
+        "kind": "database"
+      }
+    },
+    {
+      "label": "Dependency",
+      "properties": {
+        "id": "dep-redis-session",
+        "name": "redis-session",
+        "version": "7.0",
+        "kind": "queue"
+      }
+    },
+    {
+      "label": "Team",
+      "properties": { "id": "team-payments", "name": "Payments" }
+    },
+    {
+      "label": "Team",
+      "properties": { "id": "team-core", "name": "Core Platform" }
+    },
+    {
+      "label": "Team",
+      "properties": { "id": "team-infra", "name": "Infrastructure" }
+    },
+    {
+      "label": "Person",
+      "properties": {
+        "id": "usr-1",
+        "name": "Krish Chhabra",
+        "email": "krish@graphops.dev",
+        "role": "Owner",
+        "team_id": "team-core"
+      }
+    },
+    {
+      "label": "Person",
+      "properties": {
+        "id": "usr-2",
+        "name": "Ananya Rao",
+        "email": "ananya@graphops.dev",
+        "role": "Engineer",
+        "team_id": "team-payments"
+      }
+    },
+    {
+      "label": "Person",
+      "properties": {
+        "id": "usr-3",
+        "name": "Vikram Singh",
+        "email": "vikram@graphops.dev",
+        "role": "Engineer",
+        "team_id": "team-infra"
+      }
+    },
+    {
+      "label": "Person",
+      "properties": {
+        "id": "usr-4",
+        "name": "Neha Gupta",
+        "email": "neha@graphops.dev",
+        "role": "Viewer",
+        "team_id": "team-payments"
+      }
+    },
+    {
+      "label": "Person",
+      "properties": {
+        "id": "usr-5",
+        "name": "Rahul Sharma",
+        "email": "rahul@graphops.dev",
+        "role": "Engineer",
+        "team_id": "team-core"
+      }
+    },
+    {
+      "label": "Person",
+      "properties": {
+        "id": "usr-6",
+        "name": "Priya Patel",
+        "email": "priya@graphops.dev",
+        "role": "Admin",
+        "team_id": "team-infra"
+      }
+    },
+    {
+      "label": "Incident",
+      "properties": {
+        "id": "inc-2481",
+        "title": "Checkout error spike",
+        "severity": "Critical",
+        "status": "Open",
+        "summary": "High error rate on checkout-api causing failed payments.",
+        "impact": "Customers cannot complete purchases.",
+        "started_at": 1792012000000
+      }
+    },
+    {
+      "label": "Incident",
+      "properties": {
+        "id": "inc-2410",
+        "title": "Payment SDK timeout regression",
+        "severity": "High",
+        "status": "Resolved",
+        "summary": "checkout-api timed out when payment-sdk 3.2.0 changed its default retry policy.",
+        "impact": "Checkout was down for 30 minutes.",
+        "started_at": 1791500000000,
+        "resolved_at": 1791502000000,
+        "root_cause": "payment-sdk 3.2.0 retry policy change"
+      }
+    },
+    {
+      "label": "ErrorSignature",
+      "properties": {
+        "id": "sig-timeout-001",
+        "pattern": "TimeoutError: Payment SDK timed out after 3000ms",
+        "normalized_message": "timeouterror payment sdk timed out",
+        "first_seen": 1791500000000
+      }
+    },
+    {
+      "label": "Fix",
+      "properties": {
+        "id": "fix-rollback-sdk-3-1-8",
+        "title": "Rollback payment-sdk to 3.1.8",
+        "kind": "rollback",
+        "steps": ["Re-pin payment-sdk to 3.1.8", "Deploy to production", "Run contract tests"],
+        "risk": "low"
+      }
+    },
+    {
+      "label": "Outcome",
+      "properties": {
+        "id": "out-100",
+        "result": "success",
+        "evidence": "Contract tests passed. Checkout error rate returned to normal.",
+        "verified_at": 1791503000000,
+        "verified_by": "tests"
+      }
+    },
+    {
+      "label": "Deployment",
+      "properties": {
+        "id": "deploy-42",
+        "version": "payment-sdk-3.2.0",
+        "deployed_at": 1792011000000,
+        "deployed_by": "usr-3",
+        "status": "Success"
+      }
+    },
+    {
+      "label": "Document",
+      "properties": {
+        "id": "doc-17",
+        "title": "Checkout service runbook",
+        "type": "Runbook",
+        "body": "If checkout-api fails, check payment-sdk version and recent deployments. Rollback if necessary.",
+        "source_url": "https://wiki.graphops.dev/checkout-runbook",
+        "visibility": "workspace",
+        "status": "Synced"
+      }
+    },
+    {
+      "label": "Document",
+      "properties": {
+        "id": "doc-18",
+        "title": "Payment SDK 3.2.0 Migration RFC",
+        "type": "RFC",
+        "body": "This RFC details the migration to payment-sdk 3.2.0 and its new retry policy.",
+        "source_url": "https://wiki.graphops.dev/rfc-123",
+        "visibility": "team:payments",
+        "status": "Synced"
+      }
+    },
+    {
+      "label": "Decision",
+      "properties": {
+        "id": "dec-1",
+        "title": "Adopt payment-sdk 3.2.0",
+        "rationale": "New retry policy improves resilience.",
+        "decided_at": 1791000000000,
+        "status": "active"
+      }
+    }
+  ],
+  "edges": [
+    { "type": "DEPENDS_ON", "source": "svc-checkout", "target": "svc-payment-gateway", "properties": {"criticality": "high"} },
+    { "type": "DEPENDS_ON", "source": "svc-checkout", "target": "svc-auth", "properties": {"criticality": "high"} },
+    { "type": "DEPENDS_ON", "source": "svc-checkout", "target": "svc-inventory", "properties": {"criticality": "medium"} },
+    { "type": "DEPENDS_ON", "source": "svc-subscription", "target": "svc-payment-gateway", "properties": {"criticality": "high"} },
+    { "type": "DEPENDS_ON", "source": "svc-payment-gateway", "target": "dep-payment-sdk-3-2", "properties": {"criticality": "high"} },
+    { "type": "DEPENDS_ON", "source": "svc-checkout", "target": "dep-orders-db", "properties": {"criticality": "high"} },
+    { "type": "DEPENDS_ON", "source": "svc-auth", "target": "dep-redis-session", "properties": {"criticality": "high"} },
+    
+    { "type": "OWNS", "source": "usr-2", "target": "svc-checkout", "properties": {} },
+    { "type": "OWNS", "source": "team-payments", "target": "svc-payment-gateway", "properties": {} },
+    { "type": "OWNS", "source": "team-infra", "target": "svc-auth", "properties": {} },
+    
+    { "type": "MEMBER_OF", "source": "usr-1", "target": "team-core", "properties": {} },
+    { "type": "MEMBER_OF", "source": "usr-2", "target": "team-payments", "properties": {} },
+    { "type": "MEMBER_OF", "source": "usr-3", "target": "team-infra", "properties": {} },
+    { "type": "MEMBER_OF", "source": "usr-4", "target": "team-payments", "properties": {} },
+    { "type": "MEMBER_OF", "source": "usr-5", "target": "team-core", "properties": {} },
+    { "type": "MEMBER_OF", "source": "usr-6", "target": "team-infra", "properties": {} },
+
+    { "type": "CHANGED", "source": "deploy-42", "target": "svc-payment-gateway", "properties": {} },
+    { "type": "BUMPED", "source": "deploy-42", "target": "dep-payment-sdk-3-2", "properties": {"from_version": "3.1.8", "to_version": "3.2.0"} },
+    
+    { "type": "AFFECTED", "source": "inc-2481", "target": "svc-checkout", "properties": {} },
+    { "type": "AFFECTED", "source": "inc-2410", "target": "svc-checkout", "properties": {} },
+    
+    { "type": "HAS_SIGNATURE", "source": "inc-2481", "target": "sig-timeout-001", "properties": {"match_score": 0.95} },
+    { "type": "HAS_SIGNATURE", "source": "inc-2410", "target": "sig-timeout-001", "properties": {"match_score": 0.98} },
+    
+    { "type": "RESOLVED_BY", "source": "inc-2410", "target": "fix-rollback-sdk-3-1-8", "properties": {} },
+    { "type": "VERIFIED_BY", "source": "fix-rollback-sdk-3-1-8", "target": "out-100", "properties": {} },
+    
+    { "type": "DESCRIBES", "source": "doc-17", "target": "svc-checkout", "properties": {} },
+    { "type": "DESCRIBES", "source": "doc-18", "target": "svc-payment-gateway", "properties": {} },
+    { "type": "RECORDED_IN", "source": "dec-1", "target": "doc-18", "properties": {} },
+    { "type": "DECIDED_BY", "source": "dec-1", "target": "usr-3", "properties": {} },
+    { "type": "CONCERNS", "source": "dec-1", "target": "svc-payment-gateway", "properties": {} }
+  ]
+}

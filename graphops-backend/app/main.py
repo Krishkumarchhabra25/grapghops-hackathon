@@ -8,7 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api import health
+from app.api import (
+    approvals, audit, auth, graph, health, incidents,
+    investigations, knowledge, memory, runs, services, team,
+)
 from app.config import get_settings
 from app.db import falkor
 from app.db import redis as redis_db
@@ -25,8 +28,6 @@ async def lifespan(app: FastAPI):
     await redis_db.connect()
     app.state.schema = None
 
-    # The server starts even if a database is down; /health/ready reports it.
-    # Schema setup is retried by /health/ready once FalkorDB is reachable (or run: python -m scripts.init_schema)
     try:
         app.state.schema = await ensure_all()
     except Exception as e:  # noqa: BLE001
@@ -80,9 +81,20 @@ def create_app() -> FastAPI:
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception):
         log.exception('unhandled error')
-        return envelope(request, 500, 'internal_error', 'Internal server error')  # no stack trace to client
+        return envelope(request, 500, 'internal_error', 'Internal server error')
 
     app.include_router(health.router)
+    app.include_router(auth.router)
+    app.include_router(investigations.router)
+    app.include_router(runs.router)
+    app.include_router(approvals.router)
+    app.include_router(graph.router)
+    app.include_router(memory.router)
+    app.include_router(knowledge.router)
+    app.include_router(incidents.router)
+    app.include_router(services.router)
+    app.include_router(audit.router)
+    app.include_router(team.router)
     return app
 
 

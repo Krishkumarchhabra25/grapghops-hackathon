@@ -1,7 +1,8 @@
-"""Grok (xAI) client. xAI exposes an OpenAI-compatible API, so the OpenAI SDK is used with a custom base_url.
+"""Grok (xAI) client using the modern Responses API.
 
-Only setup lives here: client factory, model tiers, a cheap account check and one `chat()` wrapper.
-Agent prompts and the demo cache come later.
+xAI exposes an OpenAI-compatible API. The Responses API uses:
+  - max_output_tokens  (NOT max_tokens)
+  - text={"format": {"type": "json_object"}}  (NOT response_format)
 """
 import time
 from typing import Any, Literal
@@ -26,25 +27,47 @@ def get_client() -> AsyncOpenAI:
     if not s.llm_configured:
         raise RuntimeError('XAI_API_KEY is not set')
     if _client is None:
-        _client = AsyncOpenAI(api_key=s.xai_api_key, base_url=s.llm_base_url, timeout=s.llm_timeout_seconds)
+        _client = AsyncOpenAI(
+            api_key=s.xai_api_key,
+            base_url=s.llm_base_url,
+            timeout=s.llm_timeout_seconds,
+        )
     return _client
 
 
-async def chat(messages: list[dict[str, Any]], tier: Tier = 'reasoning', response_format: dict | None = None, **kw) -> Any:
-    """One chat completion. Pass response_format for structured JSON output."""
+async def chat(
+    messages: list[dict[str, Any]],
+    tier: Tier = 'reasoning',
+    response_format: dict | None = None,
+    **kw,
+) -> Any:
+    """One Responses API call.
+
+    messages: list of {role, content} — system+user turns.
+    response_format: pass {"type": "json_object"} to request JSON output.
+    """
     s = get_settings()
-    params: dict[str, Any] = {'model': model_for(tier), 'messages': messages, 'max_tokens': s.llm_max_output_tokens}
+
+    params: dict[str, Any] = {
+        'model': model_for(tier),
+        'input': messages,
+        'max_output_tokens': s.llm_max_output_tokens,
+    }
+
+    # Responses API structured output: text.format
     if response_format:
-        params['response_format'] = response_format
+        params['text'] = {'format': response_format}
+
     params.update(kw)
-    return await get_client().chat.completions.create(**params)
+    return await get_client().responses.create(**params)
 
 
 async def check_models() -> dict:
-    """Lists models for this API key (no tokens used) and checks the two configured ids exist."""
+    """Lists models for this API key and verifies the configured ids exist."""
     s = get_settings()
     if not s.llm_configured:
         return {'ok': False, 'error': 'XAI_API_KEY is not set'}
+
     t = time.perf_counter()
     try:
         page = await get_client().models.list()

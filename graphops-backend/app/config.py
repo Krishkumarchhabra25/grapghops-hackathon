@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     port: int = 8000
     cors_origins: str = 'http://localhost:5173'
     jwt_secret: str = 'change-me'
+    
+        # Auth / JWT
+    jwt_algorithm: str = 'HS256'
+    jwt_ttl_seconds: int = 43200          # 12 hours
+    cookie_name: str = 'graphops_session'
+    cookie_secure: bool = False           # set True behind HTTPS in prod
+    cookie_samesite: str = 'lax'
 
     # FalkorDB
     falkordb_host: str = 'localhost'
@@ -44,6 +51,10 @@ class Settings(BaseSettings):
     @property
     def llm_configured(self) -> bool:
         return bool(self.xai_api_key.strip())
+    
+    @property
+    def jwt_configured(self) -> bool:
+        return bool(self.jwt_secret and self.jwt_secret != 'change-me')
 
 
 @lru_cache
