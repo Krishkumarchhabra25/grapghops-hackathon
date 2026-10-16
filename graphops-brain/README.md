@@ -94,3 +94,4 @@ vite.config.ts
 ## Dependencies
 
 React, React DOM, React Router, Vite, Tailwind CSS, Lucide React, and Recharts.
+
