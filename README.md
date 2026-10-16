@@ -380,10 +380,61 @@ This initializes indexes and constraints, seeds demo graph data, and creates dem
 
 - Indexes on `id` for every label and unique constraints
 - Full-text indexes on `Document.title/body` and `Memory.title/summary`
-- 28 seed nodes: 7 services, 6 people, 3 teams, 2 incidents, 1 deployment, 2 documents, 1 fix, and 1 verified outcome
+- Demo graph data for services, people, teams, incidents, deployments, documents, fixes, and verified outcomes
 - 6 demo users in the control graph
 
-**Demo credentials:** `krish@graphops.dev` / `graphops-demo`. The other demo accounts are `ananya@`, `priya@`, `neha@`, `vikram@`, and `rahul@` (same password). Use the complete email addresses defined by the seed script.
+### 🔐 Demo Users & Permissions
+
+All six accounts are seeded by `python -m scripts.seed_auth`. The passwords are stored as **bcrypt hashes** in the control graph, not as plaintext. These are demo credentials; do not reuse them in production.
+
+#### Demo Users
+
+| Email | Password | Role | Team | What They Can Do |
+|---|---|---|---|---|
+| `krish@graphops.dev` | `graphops-demo` | **Owner** | Core Platform | Full access. Can approve actions, delete memories, create incidents and investigations, and view workspace data. |
+| `priya@graphops.dev` | `graphops-demo` | **Admin** | Infrastructure | Can approve actions, manage the team, and create memories; cannot delete the workspace. |
+| `ananya@graphops.dev` | `graphops-demo` | **Engineer** | Payments | Can start investigations, approve actions, create incidents, and write memories. Sees `team:payments`-scoped documents. |
+| `vikram@graphops.dev` | `graphops-demo` | **Engineer** | Infrastructure | Engineer access for the Infrastructure team; sees `team:infrastructure`-scoped documents. |
+| `rahul@graphops.dev` | `graphops-demo` | **Engineer** | Core Platform | Engineer access for the Core Platform team; demonstrates team-level isolation. |
+| `neha@graphops.dev` | `graphops-demo` | **Viewer** | Payments | Read-only access to incidents, runs, memories, and documents. Cannot approve actions, write memories, or start investigations. |
+
+#### Permission Matrix
+
+| Action | Viewer | Engineer | Admin | Owner |
+|---|:---:|:---:|:---:|:---:|
+| View dashboard, incidents, runs, memory, and knowledge | ✅ | ✅ | ✅ | ✅ |
+| Read documents scoped to `workspace` | ✅ | ✅ | ✅ | ✅ |
+| Read documents scoped to their `team:<id>` | ✅ | ✅ | ✅ | ✅ |
+| Read documents scoped to other teams | ❌ | ❌ | ❌ | ❌ |
+| Ask questions about the knowledge base | ✅ | ✅ | ✅ | ✅ |
+| Start an investigation | ❌ | ✅ | ✅ | ✅ |
+| Approve or reject a proposed action | ❌ | ✅ | ✅ | ✅ |
+| Retry a failed run | ❌ | ✅ | ✅ | ✅ |
+| Create incidents | ❌ | ✅ | ✅ | ✅ |
+| Update incidents | ❌ | ✅ | ✅ | ✅ |
+| Create memories manually | ❌ | ✅ | ✅ | ✅ |
+| Verify, pin, or deprecate memories | ❌ | ✅ | ✅ | ✅ |
+| Delete memories | ❌ | ✅ | ✅ | ✅ |
+| Run allow-listed templates via Graph Explorer | ❌ | ✅ | ✅ | ✅ |
+| Manage mock integrations | ✅ | ✅ | ✅ | ✅ |
+| Edit workspace settings | ❌ | ❌ | ✅ | ✅ |
+| Invite team members | ❌ | ❌ | ✅ | ✅ |
+| Delete workspace | ❌ | ❌ | ❌ | ✅ |
+| View audit log | ✅ | ✅ | ✅ | ✅ |
+
+#### Two RBAC Demo Moments
+
+**1. Approval gating**
+
+- Log in as **Neha** (Viewer) and open a paused run. The approval panel should explain that a Viewer can see the approval but cannot decide on it.
+- Log in as **Ananya** (Engineer) and open the same run. The **Approve & resume** control should be available.
+
+**2. Document visibility**
+
+- Log in as **Krish** (Owner, Core Platform) and ask, “What is the payment SDK migration policy?” The restricted RFC should be excluded and reflected in `filtered_count`.
+- Log in as **Ananya** (Engineer, Payments) and ask the same question. The answer should include a citation such as `[c1]` to `doc-18`.
+
+**Same question, different users, different answers:** document visibility is intended to be enforced by the API, not just hidden by the UI. Confirm these behaviors against the current checkout before treating them as verified test results.
 
 ### Step 5 — Run the backend
 
@@ -441,6 +492,166 @@ Open `http://localhost:5173` and log in using the demo credentials.
    ```bash
    docker run -p 6380:6379 redis:7-alpine
    ```
+
+---
+
+## ⚙️ Environment Configuration
+
+The project uses a backend `graphops-backend/.env` file and a frontend `graphops-brain/.env.local` file. Keep both local files out of version control. The backend template belongs in `graphops-backend/.env.example`; the frontend only needs `VITE_API_BASE_URL`.
+
+### Backend — `graphops-backend/.env`
+
+From `graphops-backend/`, copy `.env.example` to `.env` and set values for your environment. The following is a reference configuration; use the variable names supported by your current `app/config.py`.
+
+```env
+# ---------- App ----------
+APP_NAME=GraphOps Brain API
+APP_VERSION=0.1.0
+ENV=development
+HOST=0.0.0.0
+PORT=8000
+# Comma-separated list of allowed browser origins
+CORS_ORIGINS=http://localhost:5173
+# Generate a strong secret, for example: openssl rand -hex 32
+JWT_SECRET=change-me-to-a-long-random-string
+JWT_ALGORITHM=HS256
+JWT_TTL_SECONDS=43200
+COOKIE_NAME=graphops_session
+COOKIE_SECURE=false
+COOKIE_SAMESITE=lax
+
+# ---------- FalkorDB (primary graph database) ----------
+# Local Docker: host=localhost, port=6379, username/password blank
+# Cloud: use the host, port, username, and password from your instance
+FALKORDB_HOST=localhost
+FALKORDB_PORT=6379
+FALKORDB_USERNAME=
+FALKORDB_PASSWORD=
+CONTROL_GRAPH=control
+DEFAULT_WORKSPACE_ID=acme
+# Enable only when vector search is configured
+ENABLE_VECTOR_INDEX=false
+EMBEDDING_DIM=768
+
+# ---------- Redis (SSE fan-out + demo cache) ----------
+# Host port 6380 maps to container port 6379 in docker-compose.yml
+REDIS_URL=redis://localhost:6380/0
+
+# ---------- xAI Grok (LLM) ----------
+# Get a key from https://console.x.ai/team/default/api-keys
+XAI_API_KEY=xai-your-key-here
+LLM_BASE_URL=https://api.x.ai/v1
+LLM_MODEL_REASONING=grok-4.7
+LLM_MODEL_FAST=grok-build-0.1
+LLM_TIMEOUT_SECONDS=60
+LLM_MAX_OUTPUT_TOKENS=2000
+# 1 = replay cached responses; 0 = call the API
+DEMO_CACHE=0
+```
+
+**Where settings are read:** `app/config.py` (Pydantic Settings). If settings are cached at startup, restart the backend after editing `.env`; `uvicorn --reload` normally restarts the app when Python files change, but a change to an env file may still require a manual restart.
+
+| Variable | Requirement | Effect if unavailable or misconfigured |
+|---|---|---|
+| `FALKORDB_HOST` / `FALKORDB_PORT` | Required | Graph queries cannot run if FalkorDB is unreachable. |
+| `REDIS_URL` | Required for live run streaming | SSE event fan-out may not work. |
+| `JWT_SECRET` | Required for authentication | Session signing and login can fail. Use a strong private value. |
+| `XAI_API_KEY` | Required for LLM features | Hypothesis generation and the Ask endpoint may be unavailable without it. |
+| `CORS_ORIGINS` | Must include the frontend origin | Browser requests may be blocked by CORS. |
+| `ENABLE_VECTOR_INDEX` | Optional | Vector index creation is skipped when disabled. |
+
+For production, use a strong `JWT_SECRET`, serve the app over HTTPS, set `COOKIE_SECURE=true`, restrict `CORS_ORIGINS` to trusted origins, and never commit real API keys or credentials.
+
+### Frontend — `graphops-brain/.env.local`
+
+Create this file in the frontend directory:
+
+```env
+# Local development
+VITE_API_BASE_URL=http://localhost:8000
+
+# Example production value (replace with your deployed backend URL)
+# VITE_API_BASE_URL=https://your-backend.example.com
+```
+
+The frontend reads this variable from `src/lib/api.ts`; if it is unset, the documented fallback is `http://localhost:8000`. Vite exposes variables prefixed with `VITE_` to the browser, so do not put secrets in frontend environment variables. Restart `npm run dev` after changing `.env.local`.
+
+### Docker Compose — `graphops-backend/docker-compose.yml`
+
+The Compose file starts FalkorDB and Redis. In the default local setup, no extra Compose `.env` file is required if these values are hardcoded in the checked-in Compose file.
+
+```yaml
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - '6379:6379'    # FalkorDB
+      - '3000:3000'    # FalkorDB Browser UI
+    volumes:
+      - falkordb_data:/var/lib/falkordb/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6380:6379'    # host port 6380 -> container port 6379
+    volumes:
+      - redis_data:/data
+
+volumes:
+  falkordb_data:
+  redis_data:
+```
+
+| Host port | Service | Purpose |
+|---|---|---|
+| `6379` | FalkorDB | Graph queries from the backend |
+| `3000` | FalkorDB Browser | Visual graph explorer |
+| `6380` | Redis | SSE pub/sub and cache |
+| `8000` | FastAPI | Backend API, run with Uvicorn |
+| `5173` | Vite | Frontend development server |
+
+### Switching Between Local and Cloud FalkorDB
+
+For local Docker, use:
+
+```env
+FALKORDB_HOST=localhost
+FALKORDB_PORT=6379
+FALKORDB_USERNAME=
+FALKORDB_PASSWORD=
+```
+
+For FalkorDB Cloud, use the exact instance values shown in the provider dashboard:
+
+```env
+FALKORDB_HOST=your-instance-host
+FALKORDB_PORT=your-instance-port
+FALKORDB_USERNAME=falkordb
+FALKORDB_PASSWORD=your-instance-password
+```
+
+After switching endpoints, initialize the schema against the selected database from `graphops-backend/`:
+
+```bash
+python -m scripts.init_schema
+```
+
+If you use cloud-hosted FalkorDB, you can skip the local FalkorDB container. Redis is still needed for SSE fan-out unless you have changed the application architecture; start Redis locally if required:
+
+```bash
+docker run -p 6380:6379 redis:7-alpine
+```
+
+### Common Environment Issues
+
+| Symptom | Likely cause / check |
+|---|---|
+| `invalid username-password pair` | Cloud credentials are configured while the backend points at local Docker, or the cloud credentials are incorrect. |
+| FalkorDB is not reachable | Docker may not be running, or `FALKORDB_HOST` / `FALKORDB_PORT` may be incorrect. |
+| `XAI_API_KEY is not set` | `graphops-backend/.env` is missing, the key is blank, or the backend was not restarted after the change. |
+| `Missing parameters` during a query | Check the query template's expected parameters and the parameter coercion in `app/graph/service.py`. |
+| Frontend shows “Failed to fetch” | The backend may not be running, or `VITE_API_BASE_URL` points to the wrong host or port. |
+| CORS error in browser DevTools | Ensure `CORS_ORIGINS` includes the exact frontend origin, including scheme and port. |
 
 ---
 
