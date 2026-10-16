@@ -1,0 +1,83 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# If two pushes happen quickly, only one deploy runs at a time.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  # ----------------------------------------------------------
+  # Detect what changed in this push
+  # ----------------------------------------------------------
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'graphops-backend/**'
+            frontend:
+              - 'graphops-brain/**'
+
+  # ----------------------------------------------------------
+  # Deploy — runs only if backend OR frontend changed
+  # ----------------------------------------------------------
+  deploy:
+    name: Deploy to EC2
+    needs: changes
+    if: |
+      needs.changes.outputs.backend == 'true' ||
+      needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -e
+            cd ~/grapghops-hackathon
+            git fetch origin main
+            git reset --hard origin/main
+
+            if [ "${{ needs.changes.outputs.backend }}" = "true" ]; then
+              echo "======================================"
+              echo "  Deploying BACKEND"
+              echo "======================================"
+              cd graphops-backend
+              docker compose -f docker-compose.prod.yml up -d --build api
+              docker image prune -f
+              cd ..
+            fi
+
+            if [ "${{ needs.changes.outputs.frontend }}" = "true" ]; then
+              echo "======================================"
+              echo "  Deploying FRONTEND"
+              echo "======================================"
+              cd graphops-brain
+              npm install --no-audit --no-fund
+              npm run build
+              sudo rm -rf /var/www/graphops/*
+              sudo cp -r dist/* /var/www/graphops/
+              sudo chown -R nginx:nginx /var/www/graphops
+              sudo systemctl reload nginx
+              cd ..
+            fi
+
+            echo "✅ Deploy complete"
