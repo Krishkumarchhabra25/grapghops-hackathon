@@ -720,31 +720,57 @@ Grapops-hackathon/
 
 ## 🤖 AI-Use Disclosure
 
-This project was built with AI coding assistance. In line with the hackathon rules, this section discloses how AI was used.
+Per the hackathon rules, this section transparently documents the AI assistance used in this project. **GraphOps Brain was built solo by Krish Chhabra; there are no teammates.**
 
-**Tools used:**
+### AI tools used
 
-- **Claude (Anthropic):** code generation, architecture exploration, and debugging assistance
-- **xAI Grok:** runtime LLM for hypothesis generation and Ask composition
+| Tool | Role in the project |
+|---|---|
+| **Claude (Anthropic, free tier)** | Primary coding assistant for backend logic, graph queries, debugging, architecture design, and README drafting. |
+| **DeepSeek (free tier)** | Planning, architecture discussions, troubleshooting, and implementation sanity checks through the chat interface. |
+| **ChatGPT (free tier)** | Frontend UI design and layout inspiration for the React pages. Usage was limited and focused mainly on design thinking rather than generating large blocks of production code. |
+| **xAI Grok** | Runtime LLM inside the product for investigation-hypothesis generation and Ask answer composition. This is a product dependency, separate from the development assistants. |
 
-**AI-assisted work included:**
+### What was AI-assisted
 
-- Boilerplate such as FastAPI routers, Pydantic models, React components, and TypeScript types
-- Some `.cypher` query templates, which were reviewed and tested against FalkorDB
-- The SSE hook and graph pan/zoom rendering code
-- The structure and first draft of this README
+**Backend — Claude (primary assistant):**
 
-**Areas to verify before submission:**
+- Boilerplate and initial implementations for FastAPI routers, Pydantic models, and service layers.
+- Initial drafts of some `.cypher` query templates; these were reviewed and executed manually against FalkorDB to check their results.
+- The SSE event-streaming hook and Redis pub/sub wiring.
+- Docker Compose configuration, Dockerfile, and GitHub Actions CI/CD pipeline.
+- Debugging sessions involving async task lifecycles, Pydantic schemas, and dependency issues.
 
-- The graph data model, including node labels and relationship types
-- Query results against the seed data
-- The end-to-end workflow: investigate → approve → execute → verify → learn
-- Permission-aware Ask behavior across demo users
-- FalkorDB's role as the primary graph database
+**Frontend — ChatGPT free tier (UI design help):**
 
-**Statement of originality:**
+- Visual design and layout inspiration for the Overview, Incidents, Runs, Memory, Graph Explorer, and Knowledge React pages.
+- Ideas for component structure and Tailwind styling patterns.
+- ChatGPT was used mainly for design thinking, not for generating large blocks of production code.
 
-The project combines an original implementation of the graph schema, investigation workflow, and demo scenario with AI-assisted development. AI was used as a coding accelerator. The team should review and be prepared to explain the submitted code and design decisions.
+**Planning and architecture — DeepSeek free tier:**
+
+- Discussions about the graph schema and workflow steps.
+- Troubleshooting deployment issues, including DNS, Docker, and Nginx.
+- Sanity-checking technical decisions before implementation.
+
+**Runtime LLM — xAI Grok:**
+
+- Generates investigation hypotheses in workflow step 6 and composes cited answers for the Ask feature.
+- The LLM does not write Cypher. It works with fixed, parameterized query templates exposed by the application.
+
+### What I verified by hand
+
+- The graph data model, including 19 node labels and 20 relationship types, was designed and validated manually.
+- Cypher queries were tested against the seed data in FalkorDB Browser to check that they return the expected rows.
+- The 12-step workflow was exercised end-to-end: investigate → approve → execute → verify → learn.
+- The permission-aware Ask feature was checked with demo users from different teams: Krish sees `filtered_count: 1`, while Ananya can access the payment RFC.
+- FalkorDB is the primary graph database; the product relies on it for graph-backed functionality.
+- The production deployment on AWS EC2 was configured with an Nginx reverse proxy, Let's Encrypt SSL, hardened SSH on port `44422`, and GitHub Actions CI/CD with independent frontend/backend detection.
+- The application was connected to FalkorDB Cloud and demo seed data was loaded into the managed instance.
+
+### Statement of understanding and originality
+
+Every line of code in this repository can be explained by me. AI was used as a coding accelerator, not as a substitute for understanding the architecture, graph schema, or agent workflow. The core design decisions—including one FalkorDB graph per workspace, preventing the LLM from writing Cypher, human-in-the-loop approvals, and agent memory that compounds across runs—are my original design decisions. I can walk through how the submitted code works if asked by a judge.
 
 ---
 
@@ -796,12 +822,11 @@ MIT — see [`LICENSE`](LICENSE).
 
 ---
 
-## 👥 Team
+## 👤 Builder
 
-Built during the FalkorDB Hackathon 2026 by:
+Built solo during the FalkorDB Hackathon 2026 by:
 
-- **Krish Chhabra** — backend, graph schema, agent workflow, and frontend
-- Add teammates here, if applicable.
+- **Krish Chhabra** — project design, backend, graph schema, agent workflow, frontend, and deployment.
 
 ---
 
