@@ -10,7 +10,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { SectionHeading } from '../components/ui/SectionHeading';
 import { useToast } from '../contexts/ToastContext';
-import { useFetch } from '../lib/hooks';
+import { usePoll } from '../lib/hooks';
 import { incidentsApi, investigationsApi } from '../lib/api';
 import { cx, formatClock, relativeTime, toneForSeverity, toneForStatus } from '../lib/utils';
 
@@ -54,8 +54,10 @@ export function IncidentDetailPage() {
   const navigate = useNavigate();
   const { notify } = useToast();
 
-  const detail = useFetch(
+  // Poll every 5s so live investigations update this page without a refresh.
+  const detail = usePoll(
     () => incidentsApi.get(id) as Promise<IncidentDetail>,
+    5000,
     [id],
   );
 
@@ -124,7 +126,11 @@ export function IncidentDetailPage() {
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs text-slate-500">{inc.id}</span>
             <Badge tone={toneForSeverity(inc.severity)}>{inc.severity} severity</Badge>
-            <Badge tone={toneForStatus(inc.status)}>{inc.status}</Badge>
+                     <Badge tone={toneForStatus(inc.status)}>{inc.status}</Badge>
+            <span className="flex items-center gap-1.5 rounded-full border border-[#28402d] bg-[#132018] px-2 py-0.5 text-[9px] font-semibold text-lime">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-lime" />
+              LIVE
+            </span>
           </div>
           <h1 className="text-[26px] font-semibold leading-tight tracking-[-.04em] md:text-[30px]">
             {inc.title}

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
@@ -16,6 +17,7 @@ from app.config import get_settings
 from app.db import falkor
 from app.db import redis as redis_db
 from app.graph.schema import ensure_all
+from app.startup import cleanup_orphaned_runs, stale_run_watchdog
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 log = logging.getLogger('graphops')
@@ -33,9 +35,37 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         log.warning('schema setup skipped: %s', e)
 
+    # ---- Startup cleanup: mark orphaned runs as failed ----
+    # Any 'running' run right now is orphaned — nothing is executing it
+    # after a server restart. Preserve 'waiting_approval' runs (those are
+    # paused for a human decision, not stuck).
+    try:
+        cleaned = await cleanup_orphaned_runs(s.default_workspace_id)
+        if cleaned > 0:
+            log.info('Startup cleanup: marked %d orphaned runs as failed', cleaned)
+    except Exception as e:  # noqa: BLE001
+        log.warning('orphaned run cleanup skipped: %s', e)
+
+    # ---- Start the stale-run watchdog in the background ----
+    # Catches runs that stall for any other reason (crash, unhandled
+    # exception inside a spawned task). Runs every 2 minutes.
+    watchdog_task = asyncio.create_task(
+        stale_run_watchdog(s.default_workspace_id)
+    )
+    app.state.watchdog = watchdog_task
+
     if not s.llm_configured:
         log.warning('XAI_API_KEY is empty: LLM calls will fail until you set it in .env')
+
     yield
+
+    # ---- Shutdown: cancel the watchdog cleanly ----
+    watchdog_task.cancel()
+    try:
+        await watchdog_task
+    except asyncio.CancelledError:
+        pass
+
     await redis_db.close()
     await falkor.close()
 

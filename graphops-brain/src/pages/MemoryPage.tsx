@@ -15,7 +15,7 @@ import { SectionHeading } from '../components/ui/SectionHeading';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { useModal } from '../contexts/ModalContext';
-import { useFetch } from '../lib/hooks';
+import { usePoll } from '../lib/hooks';
 import { memoryApi } from '../lib/api';
 import { cx, formatDateTime, relativeTime, toneForStatus } from '../lib/utils';
 
@@ -98,13 +98,14 @@ export function MemoryPage() {
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
-  // ---------- List ----------
-  const list = useFetch(
+  // Poll every 5s so memories created by active runs appear live.
+  const list = usePoll(
     () => memoryApi.list({
       type: typeFilter === 'All' ? undefined : typeFilter,
       status: statusFilter === 'All' ? undefined : statusFilter,
       q: q || undefined,
     }) as Promise<{ memories: MemoryListItem[] }>,
+    5000,
     [typeFilter, statusFilter, q],
   );
 
@@ -121,10 +122,11 @@ export function MemoryPage() {
   }, [memories, selectedId]);
 
   // ---------- Detail ----------
-  const detail = useFetch(
+  const detail = usePoll(
     () => selectedId
       ? memoryApi.get(selectedId) as Promise<MemoryDetail>
       : Promise.resolve(null),
+    5000,
     [selectedId],
   );
 
