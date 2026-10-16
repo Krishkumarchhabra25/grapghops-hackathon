@@ -4,6 +4,12 @@
 
 Built for the **FalkorDB Hackathon 2026** — Tracks 01 (Connected Data), 02 (Agent Memory), and 03 (Company Brain).
 
+## 🌐 Live Deployment
+
+- **Frontend:** [graphops.krishchhabra.com](https://graphops.krishchhabra.com)
+- **API:** [api.graphops.krishchhabra.com](https://api.graphops.krishchhabra.com)
+- **API Docs:** [api.graphops.krishchhabra.com/docs](https://api.graphops.krishchhabra.com/docs)
+
 ---
 
 ## 📌 What It Does
