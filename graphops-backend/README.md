@@ -86,3 +86,4 @@ Checked against a real FalkorDB module (v4.18 line). Use these forms:
 ## Not done yet
 
 Auth, seed data, all feature endpoints, agent workflow, SSE, MCP. See the spec document for the plan.
+
