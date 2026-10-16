@@ -96,3 +96,4 @@ vite.config.ts
 React, React DOM, React Router, Vite, Tailwind CSS, Lucide React, and Recharts.
 
 
+
