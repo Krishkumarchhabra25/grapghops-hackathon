@@ -1,0 +1,41 @@
+cd /d/Grapops-hackathon
+cat > .gitignore << 'EOF'
+# Environment — NEVER commit real keys
+.env
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker volumes (if local)
+graphops-backend/falkordb_data/
+graphops-backend/redis_data/
+
+# Screenshots that don't belong in the repo
+docs/screenshots/*.tmp
+EOF
