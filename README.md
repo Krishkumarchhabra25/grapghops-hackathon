@@ -1,0 +1,591 @@
+# GraphOps Brain
+
+> **An AI reliability platform that turns scattered engineering context into a living graph — and gives AI agents the ability to investigate incidents, learn from verified outcomes, and answer questions with citations.**
+
+Built for the **FalkorDB Hackathon 2026** — Tracks 01 (Connected Data), 02 (Agent Memory), and 03 (Company Brain).
+
+---
+
+## 📌 What It Does
+
+When a production service breaks, engineers can lose time jumping between PagerDuty, Jira, Confluence, GitHub, and Slack just to answer questions such as:
+
+- Who owns this service?
+- What was deployed right before it broke?
+- Has this exact error happened before?
+- What fixed it last time?
+- What else breaks if this service goes down?
+
+**GraphOps Brain puts this engineering context into a FalkorDB graph and explores it with an AI agent.**
+
+The agent:
+
+1. **Investigates** an incident by traversing the graph.
+2. **Retrieves** a verified fix from a past incident with the same error signature.
+3. **Proposes** that fix to a human, with an evidence path.
+4. **Pauses** for approval; nothing runs automatically.
+5. **Executes** the approved action against a simulated environment.
+6. **Verifies** the outcome and writes a Memory node so future runs can learn from it.
+
+Every claim made by the LLM is grounded in graph evidence. The LLM never writes Cypher.
+
+---
+
+## 🎯 Track Coverage
+
+### Track 01 — Agents That Act on Connected Data
+
+| Requirement | How It's Done |
+|---|---|
+| Multi-hop reasoning | `Q01` (blast radius, 1–3 hops), `Q07b` (evidence path, up to 6 hops) |
+| Graph queries as agent tools | 40+ allow-listed `.cypher` files loaded by ID; no LLM-written Cypher |
+| Graph algorithms | `Q08` (PageRank), `Q09` (Weakly Connected Components) |
+| Actions grounded in the graph | The proposed fix comes from `Q04` — a fix that worked in a past incident |
+| Explainable results | Every finding carries an `evidence_refs` array; the UI renders the causal chain `deploy-42 → svc-payment-gateway → svc-checkout → inc-2481` |
+
+### Track 02 — Agent Memory and Coordination
+
+| Requirement | How It's Done |
+|---|---|
+| Episodic memory | Workflow step 11 writes `Memory {type: 'episodic'}` after verified outcomes |
+| Procedural memory | Step 11 also writes `Memory {type: 'procedural'}` for reusable rollback steps |
+| Persistent history | `AgentRun` + `RunEvent` nodes persist every step and survive server restarts |
+| Shared state and handoffs | `Q19` compare-and-set on `AgentRun.state_version`; agent roles cycle investigator → graph_researcher → memory_analyst → resolver |
+| High-concurrency safety | Async FalkorDB client, Redis pub/sub for SSE, and CAS to prevent lost updates |
+| Separate memory per tenant | One graph per workspace (`ws_acme`, `ws_beta`); the control graph holds users and workspaces |
+
+### Track 03 — Company Brain
+
+| Requirement | How It's Done |
+|---|---|
+| Knowledge from docs in one graph | `Document` nodes represent runbooks, RFCs, architecture docs, and SLOs |
+| Who owns what | `Q06` (owners + runbooks), `Q13` (who knows) |
+| Tracing decisions | `Q15` (decision → document → author → superseding decisions) |
+| Keeping knowledge current | `Q17` (stale documents needing review) |
+| Answers with sources | `Q16` (full-text search + graph expansion); the LLM cites `[c1]`, `[c2]` |
+| Permission-aware retrieval | `workspace` vs. `team:<id>` visibility; `filtered_count` in every Ask response |
+
+---
+
+## 🏗️ Architecture
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                         React Frontend                          │
+│  (Vite + TypeScript + Tailwind + React Router + SSE)            │
+└────────────────┬────────────────────────────────────────────────┘
+                 │ HTTPS · Cookie session (JWT)
+                 ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    FastAPI Backend (Python 3.12)                │
+│  ┌───────────┐  ┌────────────┐  ┌──────────────┐  ┌──────────┐  │
+│  │  /auth    │  │/investigat.│  │ /runs (SSE)  │  │ /memory  │  │
+│  ├───────────┤  ├────────────┤  ├──────────────┤  ├──────────┤  │
+│  │/incidents │  │/approvals  │  │   /graph     │  │/knowledge│  │
+│  ├───────────┤  ├────────────┤  ├──────────────┤  ├──────────┤  │
+│  │ /services │  │  /team     │  │   /audit     │  │ /health  │  │
+│  └───────────┘  └────────────┘  └──────────────┘  └──────────┘  │
+└─────┬──────────────────────────────────────┬────────────────────┘
+      │                                      │
+      │ Async queries via falkordb-py        │ Redis pub/sub
+      ▼                                      ▼
+┌──────────────────────┐         ┌──────────────────────┐
+│       FalkorDB       │         │        Redis         │
+│  ┌────────────────┐  │         │  (SSE fan-out,       │
+│  │ control graph  │  │         │   demo LLM cache)    │
+│  │  · User        │  │         └──────────────────────┘
+│  │  · Workspace   │  │
+│  └────────────────┘  │         ┌──────────────────────┐
+│  ┌────────────────┐  │         │       xAI Grok       │
+│  │    ws_acme     │  │◄────────┤  (LLM hypotheses,    │
+│  │  · 19 labels   │  │  LLM    │   Ask composition)   │
+│  │  · 20 rel types│  │  never  └──────────────────────┘
+│  └────────────────┘  │  writes
+└──────────────────────┘  Cypher
+```
+
+**Core design rules:**
+
+1. **FalkorDB holds domain state** — entities, relationships, memory, runs, approvals, and outcomes.
+2. **The LLM never talks directly to the database.** It calls fixed, parameterized query templates as tools.
+3. **Retrieved facts, LLM hypotheses, proposed actions, and verified outcomes are stored separately.**
+4. **One FalkorDB graph per workspace.** A small `control` graph holds users and workspaces.
+5. **Only synthetic data goes into the graph.**
+6. **All timestamps are epoch milliseconds** for range queries.
+
+---
+
+## 🗺️ Graph Data Model
+
+### Node Labels (19 in workspace graphs, 2 in the control graph)
+
+Every node carries `id` (a prefixed string), `created_at`, and `updated_at`. Source-derived nodes also carry `source`, `source_id`, and `observed_at`.
+
+| Label | Purpose | Key Properties |
+|---|---|---|
+| `Service` | A running application | `name`, `env`, `status`, `health`, `latency_ms`, `error_rate`, `version`, `repo`, `description` |
+| `Dependency` | A library, database, queue, or external API | `name`, `version`, `kind` (`library` / `database` / `queue` / `external-api`) |
+| `Deployment` | A versioned release event | `version`, `deployed_at`, `deployed_by`, `status` |
+| `Incident` | A production problem | `title`, `severity`, `status`, `summary`, `impact`, `started_at`, `resolved_at`, `root_cause` |
+| `ErrorSignature` | A normalized error message | `pattern`, `normalized_message`, `first_seen` |
+| `Fix` | A known remedy | `title`, `kind` (`rollback` / `config` / `patch`), `steps` (JSON array), `risk` |
+| `Outcome` | Verified result of applying a fix | `result` (`success` / `failure` / `partial`), `evidence`, `verified_at`, `verified_by` |
+| `Person` | A human | `name`, `email`, `role`, `team_id` |
+| `Team` | A group of people | `name` |
+| `Document` | A runbook, RFC, architecture doc, or SLO | `title`, `type`, `body`, `source_url`, `content_hash`, `visibility` (`workspace` or `team:<id>`), `status` |
+| `Decision` | A recorded architectural choice | `title`, `rationale`, `decided_at`, `status` |
+| `Agent` | An agent role definition | `name`, `role`, `model` |
+| `AgentRun` | One execution of the investigation workflow | `goal`, `status`, `state` (JSON checkpoint), `state_version`, `owner_agent`, `started_at`, `ended_at`, `tokens`, `cost_usd` |
+| `RunEvent` | One log line emitted by a run | `seq` (monotonic), `type`, `payload` (JSON), `ts` |
+| `Finding` | A fact or hypothesis discovered by the agent | `kind` (`fact` / `hypothesis`), `claim`, `confidence`, `verification`, `evidence_refs` (JSON array) |
+| `Memory` | What the agent learned from a past run | `type` (`episodic` / `semantic` / `procedural` / `policy`), `title`, `summary`, `confidence`, `status`, `uses` |
+| `Approval` | A human decision on a proposed action | `status` (`pending` / `approved` / `rejected` / `expired`), `requested_at`, `decided_at`, `decided_by` |
+| `Action` | A proposed remediation | `kind` (`rollback_dependency` / `scale_consumers` / `reset_connection_pool`), `params` (JSON), `status`, `idempotency_key` |
+| `AuditEvent` | An immutable record of a privileged action | `actor`, `verb`, `target_id`, `ts`, `detail` (JSON) |
+| **Control graph** |  |  |
+| `User` | Login identity | `name`, `email`, `password_hash`, `role` |
+| `Workspace` | Tenant container | `name`, `graph_name` |
+
+### Relationship Types (20)
+
+| Type | From → To | Properties | Written By |
+|---|---|---|---|
+| `DEPENDS_ON` | Service → Service or Dependency | `criticality` | seed, sync |
+| `OWNS` | Person / Team → Service | `since` | seed, sync |
+| `MEMBER_OF` | Person → Team | — | seed |
+| `CHANGED` | Deployment → Service | — | seed, webhook |
+| `BUMPED` | Deployment → Dependency | `from_version`, `to_version` | seed |
+| `AFFECTED` | Incident → Service | — | incident create |
+| `HAS_SIGNATURE` | Incident → ErrorSignature | `match_score` | investigator |
+| `RELATED_TO` | Incident → Incident | `via` | investigator |
+| `RESOLVED_BY` | Incident → Fix | — | Q12a |
+| `VERIFIED_BY` | Fix → Outcome | — | Q12a |
+| `RESOLVED` | Person → Incident | — | incident close |
+| `DESCRIBES` | Document → Service | — | sync |
+| `AUTHORED` | Person → Document | — | seed |
+| `RECORDED_IN` | Decision → Document | — | seed |
+| `DECIDED_BY` | Decision → Person | — | seed |
+| `CONCERNS` | Decision → Service | — | seed |
+| `SUPERSEDES` | Decision → Decision | — | seed |
+| `RAN` / `FOR_INCIDENT` / `HAS_EVENT` / `PRODUCED` / `PROPOSES` / `REQUIRES` / `FOR_FIX` | AgentRun relationships | — | workflow |
+| `ABOUT` | Memory → any entity | — | memory write |
+| `DERIVED_FROM` | Memory → AgentRun / Incident | — | memory write |
+| `SUPPORTS_FIX` | Memory → Fix | — | memory write |
+| `MEMBER_OF_WORKSPACE` | User → Workspace | `role` | control graph |
+
+### Example Subgraph
+
+The seed data creates this causal chain for the demo:
+
+```text
+deploy-42  ──CHANGED──▶  svc-payment-gateway  ◀──DEPENDS_ON──  svc-checkout
+   │                                                               │
+   │ BUMPED                                                        │ AFFECTED
+   ▼                                                               ▼
+dep-payment-sdk-3-2                                             inc-2481
+   ▲                                                               │
+   │ DEPENDS_ON                                                    │ HAS_SIGNATURE
+svc-payment-gateway  ◀───────────  sig-timeout-001  ───────────────┘
+                                   │
+                                   │ HAS_SIGNATURE
+                                   ▼
+                                inc-2410
+                                   │ RESOLVED_BY
+                                   ▼
+                         fix-rollback-sdk-3-1-8
+                                   │ VERIFIED_BY
+                                   ▼
+                              out-100 (success)
+```
+
+When the agent investigates `inc-2481`, it finds `inc-2410` via their shared signature and then finds `fix-rollback-sdk-3-1-8` via `Q04`. **That is the memory proof.**
+
+---
+
+## 🔍 Cypher Query Catalogue
+
+All queries live in `graphops-backend/app/graph/queries/` as `.cypher` files. The runner loads them by ID and passes parameters — **raw Cypher never reaches FalkorDB from the LLM or the client.**
+
+### Track 01 — Investigate and Act
+
+| ID | Purpose |
+|---|---|
+| `Q01` | Blast radius — which services depend on this one (1–3 hops) |
+| `Q02` | Services directly affected by an incident, plus downstream services |
+| `Q03` | Related incidents by shared error signature |
+| `Q04` | Historical fixes ranked by proven successes |
+| `Q05` | Recent deployments on the affected service or its dependencies |
+| `Q06` | Owners and runbooks for a service |
+| `Q07` | Evidence path: deployment → dependency → service → incident |
+| `Q07b` | Generic undirected shortest path between any two nodes (up to 6 hops) |
+| `Q08` | Service criticality via PageRank |
+| `Q09` | Service communities via Weakly Connected Components |
+| `Q12a` | Record the verified outcome of an executed fix |
+| `Q20` | Write an ErrorSignature (idempotent, hash-keyed) |
+
+### Track 02 — Memory and Coordination
+
+| ID | Purpose |
+|---|---|
+| `Q10` | Recall memories about the entities in play (verified first, by confidence) |
+| `Q11` | Write a memory and link it to a run and entities |
+| `Q11b` | Link a memory to a Fix via `SUPPORTS_FIX` |
+| `Q11m` | Manual memory creation (no run required) |
+| `Q12b` | Update memory confidence after a verified outcome |
+| `Q19` | Claim state — compare-and-set handoff between agents |
+
+**Confidence heuristic:** on success, `confidence += (1 - confidence) * 0.2`; on failure, `confidence *= 0.6`.
+
+### Track 03 — Company Brain
+
+| ID | Purpose |
+|---|---|
+| `Q13` | Who knows about a service (owners + resolvers + authors) |
+| `Q14` | Documents describing a service, filtered by visibility |
+| `Q15` | Decision trace: sources, superseding decisions, and deciders |
+| `Q16` | Ask retrieval: full-text match + graph expansion, permission-filtered |
+| `Q17` | Stale documents needing review |
+
+### Shared
+
+| ID | Purpose |
+|---|---|
+| `Q18` | Subgraph neighborhood for the Graph Explorer |
+| `Q21` / `Q21b` | List memories, with or without full-text search |
+| `Q22` | Memory detail with linked entities and fixes |
+| `Q23` / `Q24` | Document list and detail |
+| `Q25` | Full update of a memory (used by PATCH) |
+| `Q26` | Count total full-text matches (no visibility filter) |
+| `Q30`–`Q42` | Incidents, Services, Team listings and details |
+
+### The “No LLM-Written Cypher” Guardrail
+
+`graphops-backend/app/graph/service.py`:
+
+```python
+def _load(query_id: str) -> str:
+    if query_id not in _TEMPLATES:
+        path = QUERY_DIR / f'{query_id}.cypher'
+        if not path.exists():
+            raise ValueError(f'Unknown query template: {query_id}')
+        _TEMPLATES[query_id] = path.read_text(encoding='utf-8')
+    return _TEMPLATES[query_id]
+
+
+async def run_template(query_id, params, workspace_id):
+    if not query_id or not query_id.startswith('Q'):
+        raise ValueError('Invalid query id')
+    # Clamp hop depths, interpolate {HOPS}, and execute against FalkorDB.
+```
+
+The LLM only emits a JSON object such as:
+
+```json
+{
+  "hypotheses": [
+    {
+      "claim": "The payment-sdk 3.2.0 retry-policy change causes checkout timeouts",
+      "confidence": 0.87,
+      "supporting_finding_ids": ["find-xxxx"],
+      "supporting_memory_ids": ["mem-yyyy"],
+      "missing_evidence": ["No trace spans from the payment call yet"]
+    }
+  ],
+  "recommended_fix_id": "fix-rollback-sdk-3-1-8"
+}
+```
+
+Any ID the LLM cites that was not present in its input is dropped before persistence.
+
+---
+
+## 🚀 Local Setup
+
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+
+- Docker Desktop
+- An xAI API key from the [xAI Console](https://console.x.ai/) for the LLM steps
+
+### Step 1 — Clone the repository
+
+```bash
+git clone <your-repo-url>
+cd Grapops-hackathon
+```
+
+The repository contains two main folders:
+
+- `graphops-backend/` — FastAPI + FalkorDB + workflow
+- `graphops-brain/` — React + TypeScript + Tailwind frontend
+
+### Step 2 — Install backend dependencies
+
+```bash
+cd graphops-backend
+python -m venv .venv
+```
+
+Activate the environment:
+
+```bash
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+
+# macOS / Linux
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Copy `.env.example` to `.env` and set the required values:
+
+```env
+XAI_API_KEY=xai-...
+JWT_SECRET=change-me-to-a-long-random-string
+```
+
+Use your own secrets in your local `.env` file. Do not commit real API keys or production secrets.
+
+### Step 3 — Start FalkorDB and Redis
+
+```bash
+docker compose up -d
+```
+
+Verify the containers:
+
+```bash
+docker ps
+```
+
+The local setup is expected to expose FalkorDB on port `6379` (browser UI at port `3000`) and Redis on port `6380`, based on the provided Docker Compose configuration.
+
+### Step 4 — Initialize the schema and seed data
+
+From `graphops-backend/`:
+
+```bash
+python -m scripts.init_schema
+python -m seed.seed
+python -m scripts.seed_auth
+```
+
+This initializes indexes and constraints, seeds demo graph data, and creates demo users. The project seed is described as containing:
+
+- Indexes on `id` for every label and unique constraints
+- Full-text indexes on `Document.title/body` and `Memory.title/summary`
+- 28 seed nodes: 7 services, 6 people, 3 teams, 2 incidents, 1 deployment, 2 documents, 1 fix, and 1 verified outcome
+- 6 demo users in the control graph
+
+**Demo credentials:** `krish@graphops.dev` / `graphops-demo`. The other demo accounts are `ananya@`, `priya@`, `neha@`, `vikram@`, and `rahul@` (same password). Use the complete email addresses defined by the seed script.
+
+### Step 5 — Run the backend
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Check readiness at:
+
+```text
+http://localhost:8000/api/v1/health/ready
+```
+
+The expected response reports `ok` for `falkordb`, `redis`, `schema`, and `llm` when all dependencies and configuration are ready.
+
+### Step 6 — Run the frontend
+
+Open a second terminal:
+
+```bash
+cd graphops-brain
+npm install
+```
+
+Create `.env.local` with the backend URL:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+Start the frontend:
+
+```bash
+npm run dev
+```
+
+Open `http://localhost:5173` and log in using the demo credentials.
+
+### Using FalkorDB Cloud Instead of Docker
+
+1. Create an instance at [FalkorDB Cloud](https://app.falkordb.cloud/).
+2. Copy the endpoint host, port, username, and password from the instance details.
+3. Update the `.env` file using the connection settings required by your configuration, for example:
+
+   ```env
+   FALKORDB_HOST=your-instance-host
+   FALKORDB_PORT=52382
+   FALKORDB_USERNAME=falkordb
+   FALKORDB_PASSWORD=your-instance-password
+   ```
+
+4. Run `python -m scripts.init_schema` to apply the schema to the cloud instance.
+5. Skip `docker compose up` if you are using cloud-hosted FalkorDB. Redis is still used for SSE fan-out; if needed, you can run it separately:
+
+   ```bash
+   docker run -p 6380:6379 redis:7-alpine
+   ```
+
+---
+
+## 🎬 The Demo Journey
+
+1. **Log in** as `krish@graphops.dev`.
+2. **Overview:** inspect the services, incidents, and runs.
+3. **Incidents:** open `inc-2481` (Checkout error spike).
+4. **Start an investigation** and watch the SSE stream. Expected events include `run.started`, `tool.completed` (×5), `graph.path_found`, `memory.retrieved`, `finding.created` (×2), `action.proposed`, and `approval.required`.
+5. The **Approval** panel appears. Click **Approve & resume**.
+6. Watch for `action.executed`, `verification.completed`, `memory.written`, and `run.completed`.
+7. **Agent Memory:** inspect the episodic and procedural memories created by the run.
+8. **Graph Explorer:** explore an evidence path such as `deploy-42 → inc-2481`.
+9. **Knowledge Base:** ask, “What is the payment SDK migration policy?”
+   - As **Krish** (`team-core`), `filtered_count: 1` indicates the RFC is hidden.
+   - As **Ananya** (`team-payments`), the answer includes the relevant `[c1]` citation.
+
+**Track 02 proof:** start a second investigation on a different incident with the same error signature. The second run should recall the memory from the first run and propose the same fix, citing a memory such as `mem-xxxx`.
+
+---
+
+## 📂 Repository Layout
+
+```text
+Grapops-hackathon/
+├── README.md
+├── LICENSE
+├── docs/
+│   └── screenshots/              # Demo screenshots
+│
+├── graphops-backend/
+│   ├── app/
+│   │   ├── api/                  # FastAPI routers
+│   │   ├── agents/               # Workflow, tools, LLM adapter, events
+│   │   ├── auth/                 # Password hashing, JWT, session service
+│   │   ├── db/                   # FalkorDB + Redis clients
+│   │   ├── graph/
+│   │   │   ├── queries/          # .cypher files loaded by ID
+│   │   │   ├── schema.py         # Indexes + constraints
+│   │   │   └── service.py        # Query runner; no LLM-written Cypher
+│   │   ├── models/               # Pydantic schemas
+│   │   └── services/             # Audit helper
+│   ├── scripts/                  # init_schema, seed_auth
+│   ├── seed/                     # data.json + seed.py
+│   ├── docker-compose.yml
+│   ├── requirements.txt
+│   └── .env.example
+│
+└── graphops-brain/
+    ├── src/
+    │   ├── components/           # Layout, UI primitives, modals
+    │   ├── contexts/             # Auth, Toast, Modal
+    │   ├── lib/                  # API client, hooks, SSE, utilities
+    │   └── pages/                # Pages, including auth flow
+    ├── index.html
+    └── vite.config.ts
+```
+
+---
+
+## 🤖 AI-Use Disclosure
+
+This project was built with AI coding assistance. In line with the hackathon rules, this section discloses how AI was used.
+
+**Tools used:**
+
+- **Claude (Anthropic):** code generation, architecture exploration, and debugging assistance
+- **xAI Grok:** runtime LLM for hypothesis generation and Ask composition
+
+**AI-assisted work included:**
+
+- Boilerplate such as FastAPI routers, Pydantic models, React components, and TypeScript types
+- Some `.cypher` query templates, which were reviewed and tested against FalkorDB
+- The SSE hook and graph pan/zoom rendering code
+- The structure and first draft of this README
+
+**Areas to verify before submission:**
+
+- The graph data model, including node labels and relationship types
+- Query results against the seed data
+- The end-to-end workflow: investigate → approve → execute → verify → learn
+- Permission-aware Ask behavior across demo users
+- FalkorDB's role as the primary graph database
+
+**Statement of originality:**
+
+The project combines an original implementation of the graph schema, investigation workflow, and demo scenario with AI-assisted development. AI was used as a coding accelerator. The team should review and be prepared to explain the submitted code and design decisions.
+
+---
+
+## 🛠️ Technology Stack
+
+| Layer | Technology |
+|---|---|
+| Graph database | FalkorDB 4.22 |
+| Frontend | React 18 + TypeScript + Vite + Tailwind |
+| Backend | FastAPI + Pydantic v2 + Uvicorn |
+| LLM | xAI Grok models via the OpenAI SDK |
+| Streaming | Server-Sent Events (SSE) + Redis pub/sub |
+| Auth | JWT (HS256) in HTTP-only cookies |
+| Deployment | Docker Compose locally or a container host |
+
+---
+
+## 📊 Test Coverage
+
+The project notes the following manual smoke-test acceptance criteria. Confirm these again against the current checkout before presenting them as verified results in a submission.
+
+**Track 01:**
+
+- [ ] Removing `Q05` or `Q07` changes the findings and evidence path.
+- [ ] The evidence path renders in the UI.
+- [ ] The proposed action waits for human approval.
+- [ ] The outcome is stored as an `Outcome` node.
+
+**Track 02:**
+
+- [ ] Run 2 retrieves information stored by Run 1.
+- [ ] Run 2's proposed action uses recalled memory.
+- [ ] Run state survives an API restart.
+- [ ] Handoffs are reflected in `owner_agent` changes across `RunEvent` entries.
+- [ ] Two workspaces cannot see each other's memories.
+
+**Track 03:**
+
+- [ ] One answer spans at least three entity types (Person + Service + Document).
+- [ ] Every answer claim has a `[cN]` citation.
+- [ ] A restricted document is excluded and counted in `filtered_count`.
+- [ ] Missing evidence is reported in `gaps`, not invented.
+
+---
+
+## 📜 License
+
+MIT — see [`LICENSE`](LICENSE).
+
+---
+
+## 👥 Team
+
+Built during the FalkorDB Hackathon 2026 by:
+
+- **Krish Chhabra** — backend, graph schema, agent workflow, and frontend
+- Add teammates here, if applicable.
+
+---
+
+*Built with FalkorDB because a graph makes relationships such as “this deployment changed this dependency, which this service uses, and this incident affected” first-class and explorable.*
