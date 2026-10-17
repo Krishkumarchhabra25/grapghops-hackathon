@@ -47,15 +47,7 @@ export function LoginPage() {
         <h2 className="text-[28px] font-semibold tracking-[-.04em]">Sign in to GraphOps</h2>
         <p className="mt-2 text-[12px] leading-5 text-slate-500">Continue to your engineering intelligence workspace.</p>
 
-        <div className="my-6 rounded-xl border border-[#2b4930] bg-[#142018] p-3">
-          <div className="flex items-center gap-2 text-[11px] font-semibold text-lime">
-            <Sparkles size={14} /> Demo environment
-          </div>
-          <p className="mt-1.5 text-[10px] leading-5 text-slate-500">
-            Use the pre-filled demo account. Auth is backed by the FastAPI server on port 8000.
-          </p>
-        </div>
-
+    
         <form onSubmit={onSubmit} className="space-y-4">
           <label className="block">
             <span className="mb-1.5 block text-xs font-medium text-slate-300">Work email</span>
@@ -73,9 +65,7 @@ export function LoginPage() {
           <label className="block">
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-xs font-medium text-slate-300">Password</span>
-              <Link to="/forgot-password" className="text-[10px] font-semibold text-lime hover:text-[#d4ff9c]">
-                Forgot password?
-              </Link>
+            
             </div>
             <div className="relative">
               <LockKeyhole size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -102,9 +92,7 @@ export function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-7 text-center text-[11px] text-slate-500">
-          New to GraphOps? <Link to="/signup" className="font-semibold text-lime hover:text-[#d4ff9c]">Create an account</Link>
-        </p>
+      
       </div>
     </div>
   );
