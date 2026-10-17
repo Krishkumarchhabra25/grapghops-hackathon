@@ -114,11 +114,7 @@ export function TeamPage() {
         eyebrow="Manage / Workspace access"
         title="Team"
         description="Manage your workspace members, responsibilities, and access to GraphOps Brain."
-        actions={
-          <button className="btn-primary" onClick={() => openModal('invite')}>
-            <UserPlus size={14} /> Invite member
-          </button>
-        }
+  
       />
 
       {/* Stat cards */}

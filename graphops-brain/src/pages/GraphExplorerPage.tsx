@@ -2,12 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle, ArrowLeftRight, ArrowRight, ArrowUpRight,
-  BarChart3, Crosshair, Focus, GitBranch, Loader2, Maximize2, Minus,
+  BarChart3, Crosshair, Focus, GitBranch, Loader2, Minus,
   Network, Play, Plus, RefreshCw, Search, Target, Users, X, Zap, FileSearch,
 } from 'lucide-react';
 import { PageTitle } from '../components/ui/PageTitle';
 import { StatCard } from '../components/ui/StatCard';
-import { Badge } from '../components/ui/Badge';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { useToast } from '../contexts/ToastContext';
@@ -81,6 +80,8 @@ const NODE_TYPES = [
 // ============================================================
 const VIEW_W = 1400;
 const VIEW_H = 800;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 5;
 
 function computeLayout(
   nodes: GraphNode[],
@@ -124,8 +125,8 @@ function computeLayout(
     byHop.get(d)!.push(n.id);
   }
 
-  const cx = VIEW_W / 2;
-  const cy = VIEW_H / 2;
+  const midX = VIEW_W / 2;
+  const midY = VIEW_H / 2;
 
   // Generous ring spacing — scales with hop count so we always have room.
   const maxHop = Math.max(...hopMap.values(), 1);
@@ -134,7 +135,7 @@ function computeLayout(
 
   for (const [hop, ids] of byHop) {
     if (hop === 0) {
-      for (const id of ids) positions.set(id, { x: cx, y: cy });
+      for (const id of ids) positions.set(id, { x: midX, y: midY });
       continue;
     }
     const r = baseRadius + (hop - 1) * ringSpacing;
@@ -145,8 +146,8 @@ function computeLayout(
     for (let i = 0; i < count; i++) {
       const angle = (2 * Math.PI * i) / count + offset - Math.PI / 2;
       positions.set(ids[i], {
-        x: cx + Math.cos(angle) * r,
-        y: cy + Math.sin(angle) * r,
+        x: midX + Math.cos(angle) * r,
+        y: midY + Math.sin(angle) * r,
       });
     }
   }
@@ -168,10 +169,14 @@ export function GraphExplorerPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
 
-  // Pan/zoom transform
+  // Pan/zoom transform (in viewBox units)
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const dragRef = useRef<{ startX: number; startY: number; tx: number; ty: number } | null>(null);
+  const dragRef = useRef<{
+    startX: number; startY: number; tx: number; ty: number; scale: number; moved: boolean;
+  } | null>(null);
+  // Used to swallow the click that follows a drag
+  const justDraggedRef = useRef(false);
 
   // Evidence path
   const [pathFrom, setPathFrom] = useState('deploy-42');
@@ -215,15 +220,14 @@ export function GraphExplorerPage() {
     [nodes, selectedId],
   );
 
+  // Whether the <svg> is actually mounted (it's conditionally rendered)
+  const canvasVisible = !subgraph.loading && !subgraph.error && nodes.length > 0;
+
   // Set of node IDs that should stay bright. Everything else dims.
-  // - No selection: all nodes visible (subject to search/type filters)
-  // - Selection + focus off: selected node + its direct neighbors bright, rest dimmed lightly
-  // - Selection + focus on: only selected + 1-hop neighbors stay, rest hidden
   const { brightIds, hiddenIds } = useMemo(() => {
     const bright = new Set<string>();
     const hidden = new Set<string>();
 
-    // Start with search + type filter as a base — those are always applied.
     const passFilter = (n: GraphNode) => {
       if (typeFilter !== 'All' && n.type !== typeFilter) return false;
       const s = nodeSearch.trim().toLowerCase();
@@ -236,7 +240,6 @@ export function GraphExplorerPage() {
       return { brightIds: bright, hiddenIds: hidden };
     }
 
-    // Selection present → build selected + 1-hop neighborhood
     const selected = selectedId;
     const neighbors = new Set<string>([selected]);
     for (const e of edges) {
@@ -245,13 +248,11 @@ export function GraphExplorerPage() {
     }
 
     if (focusMode) {
-      // Focus: only the selected + neighbors are visible at all.
       for (const n of nodes) {
         if (neighbors.has(n.id) && passFilter(n)) bright.add(n.id);
         else hidden.add(n.id);
       }
     } else {
-      // Soft focus: selected + neighbors bright, everything else dimmed.
       for (const n of nodes) {
         if (neighbors.has(n.id) && passFilter(n)) bright.add(n.id);
         else if (!passFilter(n)) hidden.add(n.id);
@@ -260,47 +261,100 @@ export function GraphExplorerPage() {
     return { brightIds: bright, hiddenIds: hidden };
   }, [nodes, edges, selectedId, focusMode, nodeSearch, typeFilter]);
 
-  // ---------- Pan / Zoom handlers ----------
-  const onWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
-    e.preventDefault();
+  // ---------- Coordinate helper ----------
+  // Convert a client (screen) point into SVG viewBox coordinates.
+  // Uses the real screen CTM so letterboxing (preserveAspectRatio) is handled correctly.
+  const clientToView = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    // Pointer position in viewBox coords
-    const px = ((e.clientX - rect.left) / rect.width) * VIEW_W;
-    const py = ((e.clientY - rect.top) / rect.height) * VIEW_H;
-
-    setTransform(prev => {
-      const factor = Math.exp(-e.deltaY * 0.0015);
-      const nextK = Math.max(0.25, Math.min(5, prev.k * factor));
-      // Keep the pointer over the same world point.
-      const wx = (px - prev.x) / prev.k;
-      const wy = (py - prev.y) / prev.k;
-      return {
-        k: nextK,
-        x: px - wx * nextK,
-        y: py - wy * nextK,
-      };
-    });
+    if (!svg) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = clientX;
+    pt.y = clientY;
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: p.x, y: p.y };
   }, []);
 
+  // ---------- Wheel zoom (native, NON-passive so preventDefault works) ----------
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Stop the page from scrolling while the cursor is over the canvas
+      e.preventDefault();
+      e.stopPropagation();
+
+      const p = clientToView(e.clientX, e.clientY);
+      if (!p) return;
+
+      // Normalize delta across mouse wheels / trackpads / line-mode devices
+      let delta = e.deltaY;
+      if (e.deltaMode === 1) delta *= 16;
+      else if (e.deltaMode === 2) delta *= 400;
+      delta = Math.max(-120, Math.min(120, delta));
+
+      setTransform(prev => {
+        const factor = Math.exp(-delta * 0.0018);
+        const nextK = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev.k * factor));
+        if (nextK === prev.k) return prev;
+        // Keep the world point under the cursor fixed
+        const wx = (p.x - prev.x) / prev.k;
+        const wy = (p.y - prev.y) / prev.k;
+        return { k: nextK, x: p.x - wx * nextK, y: p.y - wy * nextK };
+      });
+    };
+
+    svg.addEventListener('wheel', handleWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', handleWheel);
+  }, [canvasVisible, clientToView]);
+
+  // ---------- Pan handlers ----------
   const onMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
-    // Ignore drags that start on a node — those are clicks.
+    // Don't start a pan when pressing on a node — that's a click.
     const target = e.target as Element;
-    if (target.tagName === 'circle' || target.tagName === 'text') return;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, tx: transform.x, ty: transform.y };
+    if (target.closest('[data-node]')) return;
+
+    const svg = svgRef.current;
+    const ctm = svg?.getScreenCTM();
+    if (!ctm) return;
+
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      tx: transform.x,
+      ty: transform.y,
+      scale: ctm.a || 1, // screen px per viewBox unit
+      moved: false,
+    };
   }, [transform.x, transform.y]);
 
   const onMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    if (!dragRef.current || !svgRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const dx = ((e.clientX - dragRef.current.startX) / rect.width) * VIEW_W;
-    const dy = ((e.clientY - dragRef.current.startY) / rect.height) * VIEW_H;
-    setTransform(prev => ({ ...prev, x: dragRef.current!.tx + dx, y: dragRef.current!.ty + dy }));
+    const d = dragRef.current;
+    if (!d) return;
+    const dxPx = e.clientX - d.startX;
+    const dyPx = e.clientY - d.startY;
+    if (!d.moved && Math.abs(dxPx) + Math.abs(dyPx) > 3) d.moved = true;
+    const dx = dxPx / d.scale;
+    const dy = dyPx / d.scale;
+    setTransform(prev => ({ ...prev, x: d.tx + dx, y: d.ty + dy }));
   }, []);
 
-  const onMouseUp = useCallback(() => { dragRef.current = null; }, []);
+  const endDrag = useCallback(() => {
+    if (dragRef.current?.moved) {
+      justDraggedRef.current = true;
+      setTimeout(() => { justDraggedRef.current = false; }, 0);
+    }
+    dragRef.current = null;
+  }, []);
+
+  // Clicking empty canvas (not after a drag) clears selection
+  const onCanvasClick = useCallback(() => {
+    if (justDraggedRef.current) return;
+    setSelectedId(null);
+  }, []);
 
   const resetView = () => {
     setTransform({ x: 0, y: 0, k: 1 });
@@ -310,11 +364,12 @@ export function GraphExplorerPage() {
 
   const zoomBy = (factor: number) => {
     setTransform(prev => {
-      const nextK = Math.max(0.25, Math.min(5, prev.k * factor));
-      const cx = VIEW_W / 2, cy = VIEW_H / 2;
-      const wx = (cx - prev.x) / prev.k;
-      const wy = (cy - prev.y) / prev.k;
-      return { k: nextK, x: cx - wx * nextK, y: cy - wy * nextK };
+      const nextK = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev.k * factor));
+      if (nextK === prev.k) return prev;
+      const midX = VIEW_W / 2, midY = VIEW_H / 2;
+      const wx = (midX - prev.x) / prev.k;
+      const wy = (midY - prev.y) / prev.k;
+      return { k: nextK, x: midX - wx * nextK, y: midY - wy * nextK };
     });
   };
 
@@ -590,16 +645,21 @@ export function GraphExplorerPage() {
               />
             </div>
           ) : (
-            <div className="relative overflow-hidden bg-[#0b1118]">
+            <div
+              className="relative overflow-hidden bg-[#0b1118]"
+              style={{ overscrollBehavior: 'contain' }}
+            >
               <svg
                 ref={svgRef}
                 viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-                className="h-[600px] w-full cursor-grab active:cursor-grabbing"
-                onWheel={onWheel}
+                preserveAspectRatio="xMidYMid meet"
+                className="h-[600px] w-full cursor-grab select-none active:cursor-grabbing"
+                style={{ touchAction: 'none', overscrollBehavior: 'contain' }}
                 onMouseDown={onMouseDown}
                 onMouseMove={onMouseMove}
-                onMouseUp={onMouseUp}
-                onMouseLeave={onMouseUp}
+                onMouseUp={endDrag}
+                onMouseLeave={endDrag}
+                onClick={onCanvasClick}
               >
                 <defs>
                   <pattern id="dotgrid" width="32" height="32" patternUnits="userSpaceOnUse">
@@ -628,13 +688,12 @@ export function GraphExplorerPage() {
                     const width = isFocusedEdge ? 2.2 : 1.1;
 
                     return (
-                      <g key={`${e.source}-${e.target}-${e.type}-${i}`} opacity={opacity}>
+                      <g key={`${e.source}-${e.target}-${e.type}-${i}`} opacity={opacity} pointerEvents="none">
                         <line
                           x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                           stroke={stroke}
                           strokeWidth={width}
                         />
-                        {/* Edge label — only when focused or when one end is bright */}
                         {(isFocusedEdge || isBright) && (
                           <text
                             x={(a.x + b.x) / 2}
@@ -672,8 +731,6 @@ export function GraphExplorerPage() {
 
                     const nodeOpacity = isBright ? 1 : selectedId ? 0.15 : 1;
 
-                    // Show labels for: selected, center, neighbors-of-selection,
-                    // and anything on the outer rings (when nothing is selected).
                     const showLabel =
                       isSelected ||
                       isCenter ||
@@ -683,6 +740,7 @@ export function GraphExplorerPage() {
                     return (
                       <g
                         key={n.id}
+                        data-node={n.id}
                         onClick={(e) => { e.stopPropagation(); onNodeClick(n.id); }}
                         onDoubleClick={(e) => { e.stopPropagation(); onNodeDoubleClick(n.id); }}
                         style={{ cursor: 'pointer' }}

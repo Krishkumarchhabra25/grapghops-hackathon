@@ -103,9 +103,9 @@ export function OverviewPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button className="btn-secondary" onClick={() => openModal('incident')}>
+          {/* <button className="btn-secondary" onClick={() => openModal('incident')}>
             <Plus size={14} /> Report incident
-          </button>
+          </button> */}
           <button className="btn-primary" onClick={() => openModal('investigation')}>
             <Sparkles size={14} /> New investigation
           </button>

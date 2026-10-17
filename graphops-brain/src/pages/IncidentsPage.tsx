@@ -79,9 +79,9 @@ export function IncidentsPage() {
             <button className="btn-secondary" onClick={resetFilters}>
               <RefreshCw size={13} /> Reset filters
             </button>
-            <button className="btn-primary" onClick={() => openModal('incident')}>
+            {/* <button className="btn-primary" onClick={() => openModal('incident')}>
               <Plus size={14} /> Report incident
-            </button>
+            </button> */}
           </>
         }
       />

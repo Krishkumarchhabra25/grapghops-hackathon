@@ -73,12 +73,12 @@ export function ServicesPage() {
             <button className="btn-secondary" onClick={services.refetch}>
               <RefreshCw size={13} /> Refresh health
             </button>
-            <button
+            {/* <button
               className="btn-secondary"
               onClick={() => notify('CSV export prepared in demo mode.')}
             >
               <Download size={13} /> Export
-            </button>
+            </button> */}
           </>
         }
       />

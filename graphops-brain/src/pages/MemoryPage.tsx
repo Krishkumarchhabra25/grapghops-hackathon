@@ -195,9 +195,9 @@ export function MemoryPage() {
             <button className="btn-secondary" onClick={() => { list.refetch(); detail.refetch(); }}>
               <RefreshCw size={13} /> Refresh
             </button>
-            <button className="btn-primary" onClick={() => openModal('memory')} disabled={!canAct}>
+            {/* <button className="btn-primary" onClick={() => openModal('memory')} disabled={!canAct}>
               <Plus size={14} /> Add memory
-            </button>
+            </button> */}
           </>
         }
       />
