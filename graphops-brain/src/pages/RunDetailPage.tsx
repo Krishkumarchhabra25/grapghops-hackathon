@@ -1,5 +1,6 @@
+import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowUpRight, Check, CheckCircle2, ChevronRight,
   Clock3, Copy, Loader2, Network, RefreshCw, RotateCcw, Sparkles,
@@ -15,6 +16,41 @@ import { useFetch } from '../lib/hooks';
 import { approvalsApi, runsApi } from '../lib/api';
 import { useRunEvents, type RunEvent } from '../lib/sse';
 import { cx, formatClock, relativeTime, toneForStatus } from '../lib/utils';
+
+// ---------- Display-only JSON helpers (UI only, no logic/state) ----------
+
+function toPretty(data: unknown): string {
+  if (typeof data === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(data), null, 2);
+    } catch {
+      return data;
+    }
+  }
+  try {
+    return JSON.stringify(data, null, 2);
+  } catch {
+    return String(data);
+  }
+}
+
+const WRAP_STYLE: CSSProperties = {
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
+  overflowX: 'hidden',
+  maxWidth: '100%',
+  minWidth: 0,
+  margin: 0,
+};
+
+function JsonBlock({ data, className }: { data: unknown; className?: string }) {
+  return (
+    <pre className={className} style={WRAP_STYLE}>
+      {toPretty(data)}
+    </pre>
+  );
+}
 
 // ---------- Types ----------
 type RunDetail = {
@@ -83,17 +119,14 @@ export function RunDetailPage() {
   const { notify } = useToast();
   const { user } = useAuth();
 
-  // Role check — Viewers can see the panel but not act.
   const canAct = APPROVER_ROLES.includes(user?.role || '');
 
   const run = useFetch(() => runsApi.get(id) as Promise<RunDetail>, [id]);
   const [tab, setTab] = useState<'Trace' | 'Inputs' | 'Context'>('Trace');
   const [retrying, setRetrying] = useState(false);
 
-  // Live SSE stream.
   const { events, connected } = useRunEvents(id, { stopOnTerminal: false });
 
-  // Load pending approval for this run.
   const approvals = useFetch(
     async () => {
       const res = await approvalsApi.list('pending') as { approvals: Array<{ id: string; run_id: string }> };
@@ -104,7 +137,7 @@ export function RunDetailPage() {
     [id],
   );
 
-  // React to stream events: refresh metadata + approvals.
+  // Refetch run detail when significant events occur (e.g. to update token/cost)
   useEffect(() => {
     const last = events[events.length - 1];
     if (!last) return;
@@ -121,8 +154,7 @@ export function RunDetailPage() {
   const detail = run.data;
   const pending = approvals.data;
 
-  // ---------- loading / not found ----------
-  if (run.loading) {
+  if (run.loading && !run.data) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <LoadingSpinner label="Loading run…" />
@@ -160,14 +192,12 @@ export function RunDetailPage() {
 
   return (
     <>
-      {/* Breadcrumb */}
       <div className="mb-5 flex items-center gap-2 text-[11px] text-slate-500">
         <Link to="/runs" className="hover:text-slate-300">Agent runs</Link>
         <ChevronRight size={12} />
         <span className="font-mono">{detail.id}</span>
       </div>
 
-      {/* Header */}
       <div className="mb-6 flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
         <div className="max-w-3xl">
           <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -210,7 +240,6 @@ export function RunDetailPage() {
         </div>
       </div>
 
-      {/* Stat cards */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="card p-4">
           <p className="text-[10px] uppercase tracking-widest text-slate-500">Status</p>
@@ -232,7 +261,6 @@ export function RunDetailPage() {
         </div>
       </div>
 
-      {/* Pending approval — big and prominent */}
       {pending && (
         <PendingApprovalPanel
           approval={pending}
@@ -245,11 +273,9 @@ export function RunDetailPage() {
         />
       )}
 
-      {/* Main grid */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr]">
-        {/* Left: tabs */}
-        <div className="card overflow-hidden">
-          <div className="flex gap-5 border-b border-line px-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
+        <div className="card min-w-0 overflow-hidden flex flex-col max-h-[80vh]">
+          <div className="flex gap-5 border-b border-line px-5 shrink-0">
             {(['Trace', 'Inputs', 'Context'] as const).map(t => (
               <button
                 key={t}
@@ -264,73 +290,76 @@ export function RunDetailPage() {
             ))}
           </div>
 
-          {tab === 'Trace' && (
-            <div className="p-5">
-              <SectionHeading
-                title="Execution trace"
-                subtitle="Step-by-step agent activity, streamed live"
-                action={
-                  <span className="font-mono text-[10px] text-slate-500">
-                    {events.length} event{events.length === 1 ? '' : 's'}
-                  </span>
-                }
-              />
-              {events.length === 0 ? (
-                <EmptyState
-                  icon={Activity}
-                  title={isTerminal ? 'No events captured' : 'Waiting for the first event…'}
-                  description={
-                    isTerminal
-                      ? 'This run finished before the stream was opened.'
-                      : 'The SSE stream will populate as soon as the agent acts.'
+          <div className="flex-1 overflow-y-auto p-5">
+            {tab === 'Trace' && (
+              <div className="min-w-0">
+                <SectionHeading
+                  title="Execution trace"
+                  subtitle="Step-by-step agent activity, streamed live"
+                  action={
+                    <span className="font-mono text-[10px] text-slate-500">
+                      {events.length} event{events.length === 1 ? '' : 's'}
+                    </span>
                   }
                 />
-              ) : (
-                <EventTimeline events={events} />
-              )}
-            </div>
-          )}
-
-          {tab === 'Inputs' && (
-            <div className="space-y-4 p-5">
-              <div>
-                <h3 className="mb-2 text-xs font-semibold">Run state</h3>
-                <pre className="overflow-x-auto rounded-xl border border-line bg-[#0b1118] p-4 font-mono text-[10px] leading-5 text-sky-200">
-                  {JSON.stringify(detail.state || {}, null, 2)}
-                </pre>
+                {events.length === 0 ? (
+                  <EmptyState
+                    icon={Activity}
+                    title={isTerminal ? 'No events captured' : 'Waiting for the first event…'}
+                    description={
+                      isTerminal
+                        ? 'This run finished before the stream was opened.'
+                        : 'The SSE stream will populate as soon as the agent acts.'
+                    }
+                  />
+                ) : (
+                  <EventTimeline events={events} />
+                )}
               </div>
-            </div>
-          )}
+            )}
 
-          {tab === 'Context' && (
-            <div className="p-5">
-              <SectionHeading title="Graph context" subtitle="Nodes accessed by this run" />
-              <div className="grid grid-cols-2 gap-3">
-                {(() => {
-                  const s = detail.state || {};
-                  const serviceIds: string[] = s.service_ids ?? [];
-                  const findingIds: string[] = s.finding_ids ?? [];
-                  const deploymentIds: string[] = (s.deployments ?? []).map((d: any) => d.deployment).filter(Boolean);
-                  const memoryIds: string[] = (s.memories ?? []).map((m: any) => m.id).filter(Boolean);
-                  return (
-                    <>
-                      {serviceIds.map(sid => <ContextItem key={sid} icon={Network} label="Service" value={sid} to={`/services/${sid}`} />)}
-                      {deploymentIds.map(did => <ContextItem key={did} icon={RefreshCw} label="Deployment" value={did} />)}
-                      {findingIds.slice(0, 6).map(fid => <ContextItem key={fid} icon={Sparkles} label="Finding" value={fid} />)}
-                      {memoryIds.map(mid => <ContextItem key={mid} icon={WandSparkles} label="Memory" value={mid} to={`/memory`} />)}
-                      {serviceIds.length + deploymentIds.length + findingIds.length + memoryIds.length === 0 && (
-                        <p className="col-span-2 text-xs text-slate-500">No context captured yet.</p>
-                      )}
-                    </>
-                  );
-                })()}
+            {tab === 'Inputs' && (
+              <div className="min-w-0 space-y-4">
+                <div className="min-w-0">
+                  <h3 className="mb-2 text-xs font-semibold">Run state</h3>
+                  <JsonBlock
+                    data={detail.state || {}}
+                    className="w-full rounded-xl border border-line bg-[#0b1118] p-4 font-mono text-[10px] leading-5 text-sky-200"
+                  />
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {tab === 'Context' && (
+              <div className="min-w-0">
+                <SectionHeading title="Graph context" subtitle="Nodes accessed by this run" />
+                <div className="grid grid-cols-2 gap-3">
+                  {(() => {
+                    const s = detail.state || {};
+                    const serviceIds: string[] = s.service_ids ?? [];
+                    const findingIds: string[] = s.finding_ids ?? [];
+                    const deploymentIds: string[] = (s.deployments ?? []).map((d: any) => d.deployment).filter(Boolean);
+                    const memoryIds: string[] = (s.memories ?? []).map((m: any) => m.id).filter(Boolean);
+                    return (
+                      <>
+                        {serviceIds.map(sid => <ContextItem key={sid} icon={Network} label="Service" value={sid} to={`/services/${sid}`} />)}
+                        {deploymentIds.map(did => <ContextItem key={did} icon={RefreshCw} label="Deployment" value={did} />)}
+                        {findingIds.slice(0, 6).map(fid => <ContextItem key={fid} icon={Sparkles} label="Finding" value={fid} />)}
+                        {memoryIds.map(mid => <ContextItem key={mid} icon={WandSparkles} label="Memory" value={mid} to={`/memory`} />)}
+                        {serviceIds.length + deploymentIds.length + findingIds.length + memoryIds.length === 0 && (
+                          <p className="col-span-2 text-xs text-slate-500">No context captured yet.</p>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Right: side panel */}
-        <div className="space-y-4">
+        {/* Right: side panel (Sticky) */}
+        <div className="min-w-0 space-y-4 xl:sticky xl:top-24">
           <div className="card p-5">
             <SectionHeading title="Recent events" subtitle="Last 200 persisted checkpoints" />
             {(!detail.events || detail.events.length === 0) ? (
@@ -372,13 +401,13 @@ export function RunDetailPage() {
               <div>
                 <div className="mb-1.5 flex justify-between text-[10px]">
                   <span className="text-slate-400">Tokens</span>
-                  <span className="font-mono text-slate-300">{detail.tokens ?? 0}</span>
+                  <span className="font-mono text-slate-300">{detail.tokens ? detail.tokens.toLocaleString() : 0}</span>
                 </div>
               </div>
               <div>
                 <div className="mb-1.5 flex justify-between text-[10px]">
                   <span className="text-slate-400">Cost</span>
-                  <span className="font-mono text-slate-300">${(detail.cost_usd ?? 0).toFixed(4)}</span>
+                  <span className="font-mono text-lime">${(detail.cost_usd ?? 0).toFixed(4)}</span>
                 </div>
               </div>
             </div>
@@ -389,27 +418,25 @@ export function RunDetailPage() {
   );
 }
 
-// ---------- Sub-components ----------
-
 function EventTimeline({ events }: { events: RunEvent[] }) {
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       {events.map((ev, i) => {
         const meta = eventMeta(ev.event);
         const Icon = meta.icon;
         const last = i === events.length - 1;
         return (
-          <div key={`${ev.event}-${ev.seq}-${i}`} className="flex gap-3">
+          <div key={`${ev.event}-${ev.seq}-${i}`} className="flex min-w-0 gap-3">
             <div className="w-14 shrink-0 pt-1 text-right font-mono text-[9px] text-slate-600">
               {formatClock(ev.ts)}
             </div>
-            <div className="relative flex-1 border-l border-line pb-2 pl-4">
+            <div className="relative min-w-0 flex-1 border-l border-line pb-2 pl-4 pr-1">
               <span className={cx(
                 'absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full',
                 last && 'animate-pulse',
                 meta.color.replace('text-', 'bg-'),
               )} />
-              <div className="rounded-xl border border-line bg-[#0e141c] p-3">
+              <div className="min-w-0 overflow-hidden rounded-xl border border-line bg-[#0e141c] p-3 pr-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span className={cx('flex h-6 w-6 items-center justify-center rounded-md', meta.bg, meta.color)}>
@@ -435,7 +462,7 @@ function EventTimeline({ events }: { events: RunEvent[] }) {
 
                 {ev.event === 'finding.created' && ev.data.claim && (
                   <div className="mt-2">
-                    <p className="text-[11px] leading-5 text-slate-400">{ev.data.claim}</p>
+                    <p className="whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-400">{ev.data.claim}</p>
                     {ev.data.confidence != null && (
                       <p className="mt-1 text-[10px] text-slate-500">
                         Confidence: {Math.round(ev.data.confidence * 100)}%
@@ -445,7 +472,7 @@ function EventTimeline({ events }: { events: RunEvent[] }) {
                 )}
 
                 {ev.event === 'action.proposed' && ev.data.fix_id && (
-                  <p className="mt-2 font-mono text-[10px] text-slate-400">
+                  <p className="mt-2 break-words font-mono text-[10px] text-slate-400">
                     fix: {ev.data.fix_id} · risk: {ev.data.risk ?? 'unknown'}
                   </p>
                 )}
@@ -459,9 +486,10 @@ function EventTimeline({ events }: { events: RunEvent[] }) {
 
                 {!['graph.path_found', 'finding.created', 'action.proposed', 'memory.retrieved'].includes(ev.event) &&
                   ev.data && Object.keys(ev.data).length > 2 && (
-                    <pre className="mt-2 overflow-x-auto rounded bg-[#0b1118] px-2 py-1.5 font-mono text-[9px] leading-4 text-slate-500">
-                      {JSON.stringify(ev.data, null, 0).slice(0, 220)}
-                    </pre>
+                    <JsonBlock
+                      data={ev.data}
+                      className="mt-2 w-full rounded bg-[#0b1118] px-3 py-2 font-mono text-[9px] leading-4 text-slate-500"
+                    />
                   )}
               </div>
             </div>
@@ -594,7 +622,7 @@ function PendingApprovalPanel({
                       {approval.fix.steps.map((s, i) => (
                         <li key={i} className="flex gap-2">
                           <span className="font-mono text-lime">{String(i + 1).padStart(2, '0')}</span>
-                          <span>{s}</span>
+                          <span className="break-words">{s}</span>
                         </li>
                       ))}
                     </ol>
@@ -632,7 +660,6 @@ function PendingApprovalPanel({
         </div>
       </div>
 
-      {/* Actions — role-aware */}
       <div className="border-t border-[#3a3428] bg-[#161a22] px-5 py-4">
         {!canAct ? (
           <div className="flex items-start gap-2 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-[11px] leading-5 text-amber-200/80">
@@ -699,7 +726,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3 text-[11px]">
       <span className="text-slate-500">{label}</span>
-      <span className="max-w-[60%] text-right text-slate-300">{value}</span>
+      <span className="max-w-[60%] break-words text-right text-slate-300">{value}</span>
     </div>
   );
 }

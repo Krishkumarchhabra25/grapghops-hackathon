@@ -27,6 +27,7 @@ import { ServiceDetailPage } from './pages/ServiceDetailPage';
 import { TeamPage } from './pages/TeamPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { AuditPage } from './pages/AuditPage'; // <-- New Import
 import { NotFoundPage } from './pages/NotFoundPage';
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -68,6 +69,9 @@ export default function App() {
             <Route path="/team" element={<Protected><TeamPage /></Protected>} />
             <Route path="/integrations" element={<Protected><IntegrationsPage /></Protected>} />
             <Route path="/settings" element={<Protected><SettingsPage /></Protected>} />
+            
+            {/* Replaced /tracks with /audit */}
+            <Route path="/audit" element={<Protected><AuditPage /></Protected>} />
 
             {/* -------- Fallback -------- */}
             <Route path="/404" element={<NotFoundPage />} />

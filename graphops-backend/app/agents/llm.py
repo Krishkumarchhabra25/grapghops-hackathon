@@ -1,16 +1,15 @@
 """Prompt building + schema validation for LLM steps.
 
-Two LLM entry points:
-- hypothesize(): step 6 of the workflow. Turns retrieved facts into ranked
-  hypotheses and a recommended fix. Every cited ID is validated against the
-  input; hallucinated IDs are dropped, never persisted.
-- compose_answer(): the /ask endpoint. Turns retrieved documents into a
-  cited answer. Gaps are surfaced explicitly; the LLM never invents facts.
+Three LLM entry points:
+- rewrite_query(): pre-processes user questions to fix typos and extract entities.
+- hypothesize(): step 6 of the workflow. Turns retrieved facts into ranked hypotheses.
+- compose_answer(): the /ask endpoint. Turns retrieved documents AND graph facts
+  into a cited answer.
 
 Design rules:
 1. IDs are always validated — the LLM cannot cite what it wasn't given.
 2. Confidence on unverified hypotheses is capped at 0.95.
-3. Missing evidence is reported, never fabricated.
+3. Missing evidence is reported only if BOTH documents and graph facts fail.
 4. JSON only — no prose, no markdown, no code fences.
 """
 from __future__ import annotations
@@ -53,23 +52,61 @@ OUTPUT SCHEMA (exact):
   "recommended_fix_id": "fix-... or null"
 }"""
 
-
-COMPOSE_SYSTEM = """You are a knowledge assistant for a software engineering team.
-Answer the user's question using ONLY the documents provided below.
+COMPOSE_SYSTEM = """You are a senior AI knowledge assistant for a software engineering platform.
+You answer the user's question strictly based on the provided `documents` (textual docs) and `graph_facts` (structured data extracted directly from a knowledge graph).
 
 HARD RULES:
 1. Every factual claim MUST include a citation marker like [c1], [c2].
-2. Only cite refs that appear in the input. Never invent refs like [c9].
-3. If the question cannot be fully answered, list what's missing in `gaps`.
-4. When a service, person, or document is named, use the real name.
-5. Keep the answer to 2-4 sentences. Be specific, not vague.
-6. Output JSON only. No prose, no markdown, no code fences.
+2. Only cite the exact refs provided in the input. Never invent refs like [c9].
+3. Treat `graph_facts` as first-class evidence. If the graph facts answer the question, cite them directly.
+4. DO NOT report missing documents in `gaps` if the answer can be fully derived from `graph_facts`.
+5. Only report `gaps` if BOTH `documents` and `graph_facts` completely fail to answer the user's question.
+6. If the user asks for sensitive data (passwords, API keys, PII) and the context does not have it, politely refuse in the `answer` field and do NOT list it as a gap.
+7. Be direct, specific, and concise (2-4 sentences).
+8. Output JSON only. No prose, no markdown, no code fences.
 
 OUTPUT SCHEMA (exact):
 {
   "answer": "…with [c1], [c2] markers…",
-  "gaps": ["…e.g. 'No decision record found for the retry policy'…"]
+  "gaps": ["…only if completely missing evidence…"]
 }"""
+
+REWRITE_SYSTEM = """You are an AI assistant helping to route a user's question to a knowledge graph.
+Given a raw user question, do two things:
+1. Fix any spelling mistakes and rewrite the question to be grammatically correct (e.g., "payemnt" -> "payment").
+2. Extract any specific Entities mentioned. Entities are usually Services (e.g., checkout-api, payment-gateway), People (e.g., Krish, Ananya), or Teams (e.g., Payments).
+
+OUTPUT JSON ONLY:
+{
+  "rewritten_query": "string",
+  "entities": ["string"]
+}"""
+
+
+# ============================================================
+# Query Rewriting (Advanced RAG Step 1)
+# ============================================================
+
+async def rewrite_query(question: str) -> dict:
+    """Use the fast model to clean the query and extract entities."""
+    try:
+        resp = await llm_client.chat(
+            messages=[
+                {'role': 'system', 'content': REWRITE_SYSTEM},
+                {'role': 'user', 'content': question},
+            ],
+            tier='fast',
+            response_format={'type': 'json_object'},
+        )
+        raw = getattr(resp, 'output_text', None) or ''
+        data = json.loads(raw)
+        return {
+            'rewritten_query': data.get('rewritten_query', question),
+            'entities': data.get('entities', [])
+        }
+    except Exception as e:
+        log.warning('Query rewrite failed: %s', e)
+        return {'rewritten_query': question, 'entities': []}
 
 
 # ============================================================
@@ -81,7 +118,6 @@ def _allowed_ids(
     memories: list[dict],
     deployments: list[dict],
 ) -> set[str]:
-    """Collect every ID the LLM is allowed to cite for this step."""
     ids: set[str] = set()
     for f in findings:
         if f.get('id'):
@@ -106,7 +142,6 @@ def _build_hypothesis_context(
     deployments: list[dict],
     evidence_path: dict | None,
 ) -> str:
-    """Serialize the graph facts the LLM is allowed to reason over."""
     return json.dumps(
         {
             'incident': incident,
@@ -116,12 +151,11 @@ def _build_hypothesis_context(
             'evidence_path': evidence_path,
         },
         indent=2,
-        default=str,  # tolerate non-JSON-native types (FalkorDB scalars)
+        default=str,
     )
 
 
 def _sanitize_hypothesis(h: dict, allowed: set[str]) -> dict | None:
-    """Validate and clean a single hypothesis. Returns None to drop it."""
     cited = set(h.get('supporting_finding_ids') or []) | set(h.get('supporting_memory_ids') or [])
     invalid = cited - allowed
     if invalid:
@@ -153,8 +187,7 @@ async def hypothesize(
     memories: list[dict],
     deployments: list[dict],
     evidence_path: dict | None,
-) -> dict:
-    """Call Grok, validate output, drop invalid citations, cap confidence."""
+) -> tuple[dict, dict]:
     allowed = _allowed_ids(findings, memories, deployments)
     user_msg = _build_hypothesis_context(
         incident, findings, memories, deployments, evidence_path
@@ -169,12 +202,17 @@ async def hypothesize(
         response_format={'type': 'json_object'},
     )
 
+    usage_data = {
+        'input_tokens': getattr(resp.usage, 'input_tokens', getattr(resp.usage, 'prompt_tokens', 0)) if hasattr(resp, 'usage') else 0,
+        'output_tokens': getattr(resp.usage, 'output_tokens', getattr(resp.usage, 'completion_tokens', 0)) if hasattr(resp, 'usage') else 0,
+    }
+
     raw = getattr(resp, 'output_text', None) or ''
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         log.warning('Hypothesis JSON invalid; returning empty')
-        return {'hypotheses': [], 'recommended_fix_id': None}
+        return {'hypotheses': [], 'recommended_fix_id': None}, usage_data
 
     clean: list[dict] = []
     for h in data.get('hypotheses', []):
@@ -184,26 +222,19 @@ async def hypothesize(
         if sanitized is not None:
             clean.append(sanitized)
 
-    # Validate the recommended fix — never accept a hallucinated ID.
     fix_id = data.get('recommended_fix_id')
     if fix_id and fix_id not in allowed:
         log.warning('Rejecting hallucinated recommended_fix_id: %s', fix_id)
         fix_id = None
 
-    return {'hypotheses': clean, 'recommended_fix_id': fix_id}
+    return {'hypotheses': clean, 'recommended_fix_id': fix_id}, usage_data
 
 
 # ============================================================
-# Compose answer (the /ask endpoint, Track 03)
+# Compose answer (Advanced RAG Step 3)
 # ============================================================
 
 def _label_documents(documents: list[dict]) -> list[dict]:
-    """
-    Assign citation refs (c1, c2, ...) to each document.
-
-    The refs must match the order the backend uses to build the citations
-    array in the response, so the LLM's [cN] markers map 1:1 to real IDs.
-    """
     labeled = []
     for i, d in enumerate(documents, start=1):
         labeled.append({
@@ -211,7 +242,6 @@ def _label_documents(documents: list[dict]) -> list[dict]:
             'id': d.get('id'),
             'title': d.get('title'),
             'type': d.get('type'),
-            # Truncate body — the LLM only needs enough context, not the full doc.
             'body': (d.get('body') or '')[:1500],
             'services': d.get('services') or [],
             'service_names': d.get('service_names') or [],
@@ -221,24 +251,30 @@ def _label_documents(documents: list[dict]) -> list[dict]:
     return labeled
 
 
-async def compose_answer(question: str, documents: list[dict]) -> dict:
-    """
-    Compose a cited answer from retrieved documents.
-
-    Returns a dict: {"answer": "...", "gaps": ["..."]}.
-
-    Empty input short-circuits and never calls the LLM — saves tokens and
-    gives a deterministic response when nothing matches.
-    """
-    if not documents:
+async def compose_answer(question: str, documents: list[dict], graph_facts: list[dict]) -> dict:
+    if not documents and not graph_facts:
+        # Check if the user is asking for sensitive data to give a polite refusal
+        is_sensitive = any(w in question.lower() for w in ['password', 'secret', 'api key', 'token', 'credential'])
+        
+        if is_sensitive:
+            return {
+                'answer': 'I cannot provide passwords, secrets, or API keys. For security reasons, please contact your IT or Security team.',
+                'gaps': [],
+            }
+            
         return {
-            'answer': 'No documents matched your question.',
-            'gaps': ['No matching documents in the knowledge base'],
+            'answer': "I couldn't find any runbooks, architecture docs, or graph facts related to your question. Try asking about a specific service (e.g., 'checkout-api') or a past incident.",
+            'gaps': [],
         }
 
-    labeled = _label_documents(documents)
+    labeled_docs = _label_documents(documents)
+    
     ctx = json.dumps(
-        {'question': question, 'documents': labeled},
+        {
+            'question': question,
+            'documents': labeled_docs,
+            'graph_facts': graph_facts
+        },
         indent=2,
         default=str,
     )
@@ -248,7 +284,7 @@ async def compose_answer(question: str, documents: list[dict]) -> dict:
             {'role': 'system', 'content': COMPOSE_SYSTEM},
             {'role': 'user', 'content': ctx},
         ],
-        tier='reasoning',
+        tier='fast',
         response_format={'type': 'json_object'},
     )
 
@@ -258,7 +294,7 @@ async def compose_answer(question: str, documents: list[dict]) -> dict:
     except json.JSONDecodeError:
         log.warning('compose_answer returned invalid JSON')
         return {
-            'answer': 'Unable to compose answer from the retrieved documents.',
+            'answer': 'Unable to compose answer from the retrieved context.',
             'gaps': ['LLM returned invalid JSON'],
         }
 
@@ -267,5 +303,4 @@ async def compose_answer(question: str, documents: list[dict]) -> dict:
         answer = 'Unable to compose answer.'
 
     gaps = [str(g).strip()[:200] for g in (data.get('gaps') or []) if str(g).strip()]
-
     return {'answer': answer, 'gaps': gaps}

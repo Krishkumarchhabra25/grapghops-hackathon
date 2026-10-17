@@ -2,7 +2,7 @@ import { NavLink, Link } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowUpRight, BookOpen, BrainCircuit, Building2,
   Check, ChevronsUpDown, FileSearch, LayoutDashboard, Link2, MoreHorizontal,
-  Network, Plus, Server, Settings, User, Users, Workflow, X, Command, LogOut,
+  Network, Plus, Server, Settings, User, Users, Workflow, X, Command, LogOut,ShieldCheck
 } from 'lucide-react';
 import { useState } from 'react';
 import { cx } from '../../lib/utils';
@@ -18,7 +18,6 @@ const NAV_GROUPS = [
     items: [
       { to: '/', label: 'Overview', icon: LayoutDashboard },
       { to: '/incidents', label: 'Incidents', icon: AlertTriangle },
-      { to: '/investigations', label: 'Investigations', icon: FileSearch },
       { to: '/graph', label: 'Graph explorer', icon: Network },
     ],
   },
@@ -36,12 +35,10 @@ const NAV_GROUPS = [
       { to: '/services', label: 'Services', icon: Server },
       { to: '/team', label: 'Team', icon: Users },
       { to: '/integrations', label: 'Integrations', icon: Link2 },
+      { to: '/audit', label: 'Audit log', icon: ShieldCheck }, 
     ],
   },
-  {
-    label: 'HACKATHON',
-    items: [{ to: '/tracks', label: 'Track coverage', icon: Workflow }],
-  },
+ 
 ];
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -168,29 +165,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           </div>
         </nav>
 
-        {/* Status card */}
-        <div className="m-3 rounded-xl border border-[#29342f] bg-gradient-to-br from-[#17251b] to-[#121821] p-3.5">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[10px] font-semibold text-lime">
-              <span className="h-1.5 w-1.5 rounded-full bg-lime" /> ALL SYSTEMS OPERATIONAL
-            </span>
-            <Activity size={13} className="text-lime/70" />
-          </div>
-          <div className="text-[11px] text-slate-300">Agent systems running smoothly</div>
-          <div className="mt-3 flex items-center justify-between">
-            <span className="text-[10px] text-slate-500">API usage</span>
-            <span className="font-mono text-[10px] text-slate-400">68% of limit</span>
-          </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#2a382d]">
-            <div className="h-full w-[68%] rounded-full bg-lime" />
-          </div>
-          <button
-            onClick={() => navigate('/settings')}
-            className="mt-3 flex w-full items-center justify-between border-t border-[#28362c] pt-3 text-[10px] font-semibold text-slate-400 hover:text-lime"
-          >
-            Manage plan <ArrowUpRight size={12} />
-          </button>
-        </div>
+   
 
         {/* Profile */}
         <div className="border-t border-line p-3">

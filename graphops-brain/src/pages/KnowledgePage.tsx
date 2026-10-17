@@ -96,6 +96,12 @@ const SUGGESTED_QUESTIONS = [
   'What was the last checkout incident and how was it fixed?',
 ];
 
+// Backend caps `limit` at 200. We request the max page once and filter
+// client-side so type/status/text filters cover the whole workspace
+// without a round-trip per keystroke. If a workspace ever exceeds 200
+// docs, switch to server-side `status`/`type` params + pagination.
+const SOURCES_LIMIT = 200;
+
 export function KnowledgePage() {
   const { notify } = useToast();
 
@@ -133,7 +139,11 @@ export function KnowledgePage() {
   }, [searchInput]);
 
   const sources = useFetch(
-    () => knowledgeApi.sources() as Promise<{ documents: DocumentListItem[]; count: number }>,
+    () =>
+      knowledgeApi.sources({ limit: SOURCES_LIMIT }) as Promise<{
+        documents: DocumentListItem[];
+        count: number;
+      }>,
   );
 
   const allDocs = sources.data?.documents ?? [];
@@ -149,6 +159,16 @@ export function KnowledgePage() {
       return true;
     });
   }, [allDocs, typeFilter, statusFilter, q]);
+
+  // "Last sync" = max updated_at across the workspace (backend does not
+  // guarantee sort order, so don't assume allDocs[0] is the freshest).
+  const lastSync = useMemo(() => {
+    return allDocs.reduce<number | null>(
+      (max, d) =>
+        d.updated_at && (max == null || d.updated_at > max) ? d.updated_at : max,
+      null,
+    );
+  }, [allDocs]);
 
   // ---------- Document detail ----------
   const [openDocId, setOpenDocId] = useState<string | null>(null);
@@ -272,22 +292,27 @@ export function KnowledgePage() {
                           onClick={() => c.kind === 'document' && setOpenDocId(c.id)}
                           className={cx(
                             'flex items-center gap-2 rounded-lg border border-line bg-[#0e141c] px-2.5 py-1.5 text-left transition-colors',
-                            c.kind === 'document' && 'hover:border-lime/40',
+                            c.kind === 'document'
+                              ? 'cursor-pointer hover:border-lime/40'
+                              : 'cursor-default',
                           )}
                         >
-                          <span className="font-mono text-[10px] font-bold text-lime">
+                          <span className="shrink-0 font-mono text-[10px] font-bold text-lime">
                             [{c.ref}]
                           </span>
-                          <div>
-                            <p className="text-[11px] font-medium text-slate-200">
-                              {c.title || c.id}
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-1 text-[11px] font-medium text-slate-200">
+                              {c.kind === 'graph' && (
+                                <Network size={10} className="shrink-0 text-violet-300" />
+                              )}
+                              <span className="truncate">{c.title || c.id}</span>
                             </p>
                             <p className="mt-0.5 font-mono text-[9px] text-slate-600">
                               {c.kind} · {c.id}
                             </p>
                           </div>
                           {c.kind === 'document' && (
-                            <ArrowUpRight size={11} className="text-slate-600" />
+                            <ArrowUpRight size={11} className="shrink-0 text-slate-600" />
                           )}
                         </button>
                       ))}
@@ -295,13 +320,13 @@ export function KnowledgePage() {
                   </div>
                 )}
 
-                {/* Gaps */}
-                {askResult.gaps.length > 0 && (
+                {/* Gaps: Only show if we actually retrieved SOME context but missed a piece */}
+                {askResult.gaps.length > 0 && askResult.retrieved_count > 0 && (
                   <div className="mb-3 rounded-lg border border-[#4c4128] bg-[#1c1a14] p-3">
                     <div className="flex items-start gap-2">
                       <Info size={13} className="mt-0.5 shrink-0 text-amber-300" />
                       <div>
-                        <p className="text-[11px] font-semibold text-amber-200">Missing evidence</p>
+                        <p className="text-[11px] font-semibold text-amber-200">Partial context</p>
                         <ul className="mt-1.5 space-y-1 text-[11px] leading-5 text-slate-400">
                           {askResult.gaps.map((g, i) => (
                             <li key={i} className="flex gap-2">
@@ -317,11 +342,15 @@ export function KnowledgePage() {
 
                 {/* Footer note */}
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#2a3a2c] pt-3 text-[10px] text-slate-500">
-                  <span>{askResult.retrieved_count} source{askResult.retrieved_count === 1 ? '' : 's'} retrieved</span>
+                  <span>
+                    {askResult.retrieved_count} source
+                    {askResult.retrieved_count === 1 ? '' : 's'} retrieved
+                  </span>
                   {askResult.filtered_count > 0 && (
                     <span className="flex items-center gap-1.5 text-amber-200/80">
                       <Lock size={10} />
-                      {askResult.filtered_count} matching item{askResult.filtered_count === 1 ? '' : 's'} hidden by permission
+                      {askResult.filtered_count} matching item
+                      {askResult.filtered_count === 1 ? '' : 's'} hidden by permission
                     </span>
                   )}
                 </div>
@@ -482,9 +511,12 @@ export function KnowledgePage() {
         )}
 
         <div className="flex items-center justify-between border-t border-line px-5 py-3 text-[10px] text-slate-500">
-          <span>Showing {filteredDocs.length} of {allDocs.length} sources</span>
+          <span>
+            Showing {filteredDocs.length} of {allDocs.length} sources
+            {allDocs.length >= SOURCES_LIMIT && ' (capped at 200)'}
+          </span>
           <span className="flex items-center gap-1">
-            <Clock3 size={11} /> Last sync {relativeTime(allDocs[0]?.updated_at) ?? 'never'}
+            <Clock3 size={11} /> Last sync {lastSync ? relativeTime(lastSync) : 'never'}
           </span>
         </div>
       </div>

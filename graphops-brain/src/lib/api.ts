@@ -61,6 +61,30 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   return payload as T;
 }
 
+// ============================================================
+// Types
+// ============================================================
+
+export type AuditEvent = {
+  id: string;
+  actor: string;
+  verb: string;
+  target_id: string | null;
+  ts: number;
+  detail: Record<string, any>;
+};
+
+export type AuditListResponse = {
+  events: AuditEvent[];
+  count: number;
+  limit: number;
+  offset: number;
+};
+
+// ============================================================
+// API Clients
+// ============================================================
+
 // ---- Auth ----
 export const authApi = {
   login: (email: string, password: string) =>
@@ -72,7 +96,7 @@ export const authApi = {
   me: () => request<{ user: any; workspace: any }>('/api/v1/auth/me'),
 };
 
-// ---- Resources (extend as needed) ----
+// ---- Resources ----
 export const incidentsApi = {
   list: (q?: string) => request<any>(`/api/v1/incidents${q ? `?q=${encodeURIComponent(q)}` : ''}`),
   get: (id: string) => request<any>(`/api/v1/incidents/${id}`),
@@ -134,11 +158,38 @@ export const memoryApi = {
   deprecate: (id: string) => request<any>(`/api/v1/memory/${id}/deprecate`, { method: 'POST' }),
 };
 
+// ---- Knowledge ----
+// Backend endpoints (see app/api/knowledge.py):
+//   POST /ask                          -> AskResponse
+//   GET  /knowledge/sources            -> DocumentListResponse   (status?, type?, limit<=200)
+//   GET  /knowledge/sources/{doc_id}   -> DocumentDetail
+//   GET  /knowledge/search             -> SearchResponse         (q required, limit<=50)
 export const knowledgeApi = {
-  ask: (question: string) => request<any>('/api/v1/ask', { method: 'POST', body: { question } }),
-  sources: () => request<any>('/api/v1/knowledge/sources'),
-  document: (id: string) => request<any>(`/api/v1/knowledge/sources/${id}`),
-  search: (q: string) => request<any>(`/api/v1/knowledge/search?q=${encodeURIComponent(q)}`),
+  ask: (question: string) =>
+    request<any>('/api/v1/ask', { method: 'POST', body: { question } }),
+
+  // Server-side filters (status/type) + pagination (limit) are supported.
+  // Passing no `limit` defaults to 50 on the backend.
+  sources: (params?: { status?: string; type?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.type) qs.set('type', params.type);
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    return request<any>(
+      `/api/v1/knowledge/sources${qs.toString() ? `?${qs}` : ''}`,
+    );
+  },
+
+  document: (id: string) =>
+    request<any>(`/api/v1/knowledge/sources/${id}`),
+
+  // Server performs LLM query rewrite internally — `q` is min 1 char.
+  // Default limit on backend is 8 (max 50).
+  search: (q: string, limit?: number) => {
+    const qs = new URLSearchParams({ q });
+    if (limit != null) qs.set('limit', String(limit));
+    return request<any>(`/api/v1/knowledge/search?${qs}`);
+  },
 };
 
 export const servicesApi = {
@@ -151,16 +202,36 @@ export const servicesApi = {
   get: (id: string) => request<any>(`/api/v1/services/${id}`),
 };
 
+// ---- Audit ----
+// Backend endpoints (see app/api/audit.py):
+//   GET /audit                -> AuditListResponse   (actor?, verb?, target_id?, since?, until?, limit<=500, offset)
+//   GET /audit/verbs          -> AuditVerbsResponse  (distinct verbs for dropdowns)
+//   GET /audit/{event_id}     -> AuditEventPublic
 export const auditApi = {
-  list: (params?: { actor?: string; verb?: string; target_id?: string; limit?: number }) => {
+  list: (params?: { 
+    actor?: string; 
+    verb?: string; 
+    target_id?: string; 
+    since?: number;
+    until?: number;
+    limit?: number;
+    offset?: number;
+  }) => {
     const qs = new URLSearchParams();
     if (params?.actor) qs.set('actor', params.actor);
     if (params?.verb) qs.set('verb', params.verb);
     if (params?.target_id) qs.set('target_id', params.target_id);
-    if (params?.limit) qs.set('limit', String(params.limit));
-    return request<any>(`/api/v1/audit${qs.toString() ? `?${qs}` : ''}`);
+    if (params?.since != null) qs.set('since', String(params.since));
+    if (params?.until != null) qs.set('until', String(params.until));
+    if (params?.limit != null) qs.set('limit', String(params.limit));
+    if (params?.offset != null) qs.set('offset', String(params.offset));
+    
+    return request<AuditListResponse>(`/api/v1/audit${qs.toString() ? `?${qs}` : ''}`);
   },
-  verbs: () => request<any>('/api/v1/audit/verbs'),
+  
+  verbs: () => request<{ verbs: string[] }>('/api/v1/audit/verbs'),
+  
+  get: (eventId: string) => request<AuditEvent>(`/api/v1/audit/${eventId}`),
 };
 
 // ---- SSE ----

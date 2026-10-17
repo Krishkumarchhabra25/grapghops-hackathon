@@ -221,7 +221,8 @@ async def list_runs(user: CurrentUser, limit: int = 20):
         MATCH (r:AgentRun)
         RETURN r.id AS run_id, r.goal AS goal, r.status AS status,
                r.owner_agent AS owner_agent, r.started_at AS started_at,
-               r.ended_at AS ended_at, r.state_version AS state_version
+               r.ended_at AS ended_at, r.state_version AS state_version,
+               r.tokens AS tokens, r.cost_usd AS cost_usd
         ORDER BY r.started_at DESC
         LIMIT $limit
         """,

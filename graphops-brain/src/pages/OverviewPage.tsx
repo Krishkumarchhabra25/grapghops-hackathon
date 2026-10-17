@@ -1,12 +1,11 @@
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Activity, AlertTriangle, ArrowUpRight, BrainCircuit, CheckCircle2,
-  Clock3, GitCommit, HeartPulse, Network, Plus, Search, Sparkles,
+  Clock3, GitCommit, HeartPulse, Network, Plus, Search, Sparkles, Workflow,
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts';
-import { Shell } from '../components/layout/Shell';
 import { StatCard } from '../components/ui/StatCard';
 import { Badge } from '../components/ui/Badge';
 import { Avatar } from '../components/ui/Avatar';
@@ -18,7 +17,7 @@ import { useFetch, usePoll } from '../lib/hooks';
 import { incidentsApi, servicesApi, runsApi } from '../lib/api';
 import { cx, relativeTime, toneForSeverity, toneForStatus } from '../lib/utils';
 
-// ---- Types (loose for now — tighten when we add typed endpoints) ----
+// ---- Types ----
 type Incident = {
   id: string;
   title: string;
@@ -79,8 +78,6 @@ export function OverviewPage() {
   const failedRuns = runList.filter(r => r.status === 'failed').length;
   const runningRuns = runList.filter(r => r.status === 'running' || r.status === 'waiting_approval').length;
 
-  // Simple trend data — real per-day trends would need a dedicated endpoint.
-  // We mock the 7-day shape from the current totals so the chart still renders.
   const total = succeededRuns + failedRuns;
   const successRate = total > 0 ? Math.round((succeededRuns / total) * 100) : 0;
   const runTrend = buildTrend(succeededRuns, failedRuns);
@@ -181,7 +178,7 @@ export function OverviewPage() {
       {/* ---------- Main grid: chart + service health ---------- */}
       <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-[1.55fr_1fr]">
         {/* Agent run performance */}
-        <div className="card p-4 md:p-5">
+        <div className="card flex flex-col p-4 md:p-5">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2">
@@ -218,7 +215,7 @@ export function OverviewPage() {
             </div>
           </div>
 
-          <div className="h-[195px] w-full">
+          <div className="h-[195px] w-full flex-1">
             {loading ? (
               <LoadingSpinner label="Loading run history…" />
             ) : total === 0 ? (
@@ -254,7 +251,7 @@ export function OverviewPage() {
         </div>
 
         {/* Live service health */}
-        <div className="card p-4 md:p-5">
+        <div className="card flex flex-col p-4 md:p-5">
           <div className="mb-4 flex items-start justify-between">
             <div>
               <h2 className="text-sm font-semibold">Live service health</h2>
@@ -322,8 +319,8 @@ export function OverviewPage() {
       {/* ---------- Bottom grid: incidents + agent activity ---------- */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.4fr_1fr]">
         {/* Incidents needing attention */}
-        <div className="card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-line px-4 py-4 md:px-5">
+        <div className="card flex flex-col overflow-hidden">
+          <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-4 md:px-5">
             <div>
               <h2 className="text-sm font-semibold">Incidents needing attention</h2>
               <p className="mt-1 text-[11px] text-slate-500">Prioritised by severity and recency</p>
@@ -342,30 +339,32 @@ export function OverviewPage() {
               description="No active incidents right now."
             />
           ) : (
-            <div>
+            <div className="flex-1 overflow-y-auto">
               {activeIncidents.slice(0, 4).map(i => (
                 <Link
                   to={`/incidents/${i.id}`}
                   key={i.id}
-                  className="table-row flex items-start gap-3 px-4 py-3.5 md:px-5"
+                  className="flex items-center justify-between gap-4 border-b border-[#2a3542] px-4 py-4 transition-colors last:border-0 hover:bg-[#151d26] md:px-5"
                 >
-                  <div className={cx(
-                    'mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                    i.severity === 'Critical' ? 'bg-rose-400/10 text-rose-300'
-                      : i.severity === 'High' ? 'bg-amber-400/10 text-amber-300'
-                      : 'bg-sky-400/10 text-sky-300',
-                  )}>
-                    <AlertTriangle size={15} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-[10px] text-slate-500">{i.id}</span>
-                      <Badge tone={toneForSeverity(i.severity)}>{i.severity}</Badge>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className={cx(
+                      'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+                      i.severity === 'Critical' ? 'bg-rose-400/10 text-rose-300'
+                        : i.severity === 'High' ? 'bg-amber-400/10 text-amber-300'
+                        : 'bg-sky-400/10 text-sky-300',
+                    )}>
+                      <AlertTriangle size={16} />
                     </div>
-                    <p className="mt-1 truncate text-xs font-semibold text-slate-200">{i.title}</p>
-                    <p className="mt-1 truncate text-[10px] text-slate-500">
-                      {i.services?.join(', ') || 'no service'} · {relativeTime(i.started_at)}
-                    </p>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-[10px] text-slate-500">{i.id}</span>
+                        <Badge tone={toneForSeverity(i.severity)}>{i.severity}</Badge>
+                      </div>
+                      <p className="mt-1 truncate text-xs font-semibold text-slate-200">{i.title}</p>
+                      <p className="mt-1 truncate text-[10px] text-slate-500">
+                        {i.services?.join(', ') || 'no service'} · {relativeTime(i.started_at)}
+                      </p>
+                    </div>
                   </div>
                   <Badge tone={toneForStatus(i.status)}>{i.status}</Badge>
                 </Link>
@@ -375,8 +374,8 @@ export function OverviewPage() {
         </div>
 
         {/* Agent activity */}
-        <div className="card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-line px-4 py-4 md:px-5">
+        <div className="card flex flex-col overflow-hidden">
+          <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-4 md:px-5">
             <div>
               <h2 className="text-sm font-semibold">Agent activity</h2>
               <p className="mt-1 text-[11px] text-slate-500">Recent runs across all agents</p>
@@ -386,7 +385,7 @@ export function OverviewPage() {
             </Link>
           </div>
 
-          <div className="p-4 md:p-5">
+          <div className="flex-1 overflow-y-auto p-4 md:p-5">
             {loading ? (
               <LoadingSpinner />
             ) : runList.length === 0 ? (
@@ -427,12 +426,14 @@ export function OverviewPage() {
             )}
           </div>
 
-          <button
-            onClick={() => openModal('investigation')}
-            className="mx-4 mb-4 flex w-[calc(100%-2rem)] items-center justify-center gap-2 rounded-lg border border-dashed border-[#344151] py-2.5 text-[11px] font-semibold text-slate-400 hover:border-lime/50 hover:text-lime md:mx-5 md:w-[calc(100%-2.5rem)]"
-          >
-            <Plus size={13} /> Start a new investigation
-          </button>
+          <div className="shrink-0 px-4 pb-4 md:px-5 md:pb-5">
+            <button
+              onClick={() => openModal('investigation')}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[#344151] py-2.5 text-[11px] font-semibold text-slate-400 transition-colors hover:border-lime/50 hover:text-lime"
+            >
+              <Plus size={13} /> Start a new investigation
+            </button>
+          </div>
         </div>
       </div>
     </>
@@ -485,9 +486,4 @@ function buildTrend(success: number, failed: number) {
     });
   }
   return out;
-}
-
-// Local stub icon to avoid importing Workflow at the top when we only use it once
-function Workflow(props: { size?: number }) {
-  return <Network {...props} />;
 }

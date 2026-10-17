@@ -19,7 +19,7 @@ import { usePoll } from '../lib/hooks';
 import { memoryApi } from '../lib/api';
 import { cx, formatDateTime, relativeTime, toneForStatus } from '../lib/utils';
 
-// ---------- Types (mirror app/models/memory.py) ----------
+// ---------- Types ----------
 type MemoryType = 'episodic' | 'semantic' | 'procedural' | 'policy';
 type MemoryStatus = 'unverified' | 'verified' | 'pinned' | 'deprecated';
 
@@ -98,14 +98,14 @@ export function MemoryPage() {
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
-  // Poll every 5s so memories created by active runs appear live.
+  // Poll every 10s to save server cost (was 5s).
   const list = usePoll(
     () => memoryApi.list({
       type: typeFilter === 'All' ? undefined : typeFilter,
       status: statusFilter === 'All' ? undefined : statusFilter,
       q: q || undefined,
     }) as Promise<{ memories: MemoryListItem[] }>,
-    5000,
+    10000,
     [typeFilter, statusFilter, q],
   );
 
@@ -126,7 +126,7 @@ export function MemoryPage() {
     () => selectedId
       ? memoryApi.get(selectedId) as Promise<MemoryDetail>
       : Promise.resolve(null),
-    5000,
+    10000, // Poll detail every 10s
     [selectedId],
   );
 
@@ -262,9 +262,9 @@ export function MemoryPage() {
       {/* Split panel */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_420px]">
         {/* ---------- Left: list ---------- */}
-        <div className="card overflow-hidden">
+        <div className="card overflow-hidden flex flex-col max-h-[80vh]">
           {/* Filter bar */}
-          <div className="flex flex-col gap-3 border-b border-line p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-b border-line p-4 sm:flex-row sm:items-center sm:justify-between shrink-0">
             <div className="flex flex-wrap gap-1 rounded-lg bg-[#0d131b] p-1">
               {STATUS_TABS.map(s => (
                 <button
@@ -288,99 +288,104 @@ export function MemoryPage() {
             />
           </div>
 
-          {/* List body */}
-          {list.loading ? (
-            <LoadingSpinner label="Loading memories…" />
-          ) : list.error ? (
-            <EmptyState
-              icon={AlertTriangle}
-              title="Couldn't load memories"
-              description={list.error.message}
-              action={<button className="btn-secondary" onClick={list.refetch}>Retry</button>}
-            />
-          ) : memories.length === 0 ? (
-            <EmptyState
-              icon={BrainCircuit}
-              title={q || typeFilter !== 'All' || statusFilter !== 'All'
-                ? 'No memories match'
-                : 'No memories yet'}
-              description={
-                q || typeFilter !== 'All' || statusFilter !== 'All'
-                  ? 'Try another search or clear your filters.'
-                  : 'Run an investigation and approve the fix — the agent will write a Memory after verification.'
-              }
-              action={
-                q || typeFilter !== 'All' || statusFilter !== 'All' ? (
-                  <button
-                    className="btn-secondary"
-                    onClick={() => { setSearchInput(''); setTypeFilter('All'); setStatusFilter('All'); }}
-                  >
-                    Clear filters
-                  </button>
-                ) : (
-                  <button className="btn-primary" onClick={() => openModal('memory')} disabled={!canAct}>
-                    <Plus size={13} /> Add memory
-                  </button>
-                )
-              }
-            />
-          ) : (
-            <div className="divide-y divide-[#222b36]">
-              {memories.map(m => {
-                const meta = TYPE_META[m.type];
-                const Icon = meta.icon;
-                const isSelected = selectedId === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => setSelectedId(m.id)}
-                    className={cx(
-                      'flex w-full gap-3 px-4 py-4 text-left transition-colors hover:bg-[#171f29] md:px-5',
-                      isSelected && 'bg-[#19231d]',
-                    )}
-                  >
-                    <div className={cx(
-                      'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
-                      meta.tone === 'blue' && 'bg-sky-400/10',
-                      meta.tone === 'purple' && 'bg-violet-400/10',
-                      meta.tone === 'green' && 'bg-lime/10',
-                      meta.tone === 'yellow' && 'bg-amber-400/10',
-                      meta.color,
-                    )}>
-                      <Icon size={16} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-[9px] text-slate-600">{m.id}</span>
-                        <Badge tone={meta.tone}>{meta.label}</Badge>
-                        <Badge tone={toneForStatus(m.status)}>{m.status}</Badge>
+          {/* List body - Internal Scroll */}
+          <div className="flex-1 overflow-y-auto">
+            {list.loading && !list.data ? (
+              <LoadingSpinner label="Loading memories…" />
+            ) : list.error ? (
+              <EmptyState
+                icon={AlertTriangle}
+                title="Couldn't load memories"
+                description={list.error.message}
+                action={<button className="btn-secondary" onClick={list.refetch}>Retry</button>}
+              />
+            ) : memories.length === 0 ? (
+              <EmptyState
+                icon={BrainCircuit}
+                title={q || typeFilter !== 'All' || statusFilter !== 'All'
+                  ? 'No memories match'
+                  : 'No memories yet'}
+                description={
+                  q || typeFilter !== 'All' || statusFilter !== 'All'
+                    ? 'Try another search or clear your filters.'
+                    : 'Run an investigation and approve the fix — the agent will write a Memory after verification.'
+                }
+                action={
+                  q || typeFilter !== 'All' || statusFilter !== 'All' ? (
+                    <button
+                      className="btn-secondary"
+                      onClick={() => { setSearchInput(''); setTypeFilter('All'); setStatusFilter('All'); }}
+                    >
+                      Clear filters
+                    </button>
+                  ) : (
+                    <button className="btn-primary" onClick={() => openModal('memory')} disabled={!canAct}>
+                      <Plus size={13} /> Add memory
+                    </button>
+                  )
+                }
+              />
+            ) : (
+              <div className="divide-y divide-[#222b36]">
+                {memories.map(m => {
+                  const meta = TYPE_META[m.type];
+                  const Icon = meta.icon;
+                  const isSelected = selectedId === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => setSelectedId(m.id)}
+                      className={cx(
+                        'flex w-full gap-3 px-4 py-4 text-left transition-colors hover:bg-[#171f29] md:px-5',
+                        isSelected && 'bg-[#19231d]',
+                      )}
+                    >
+                      <div className={cx(
+                        'mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+                        meta.tone === 'blue' && 'bg-sky-400/10',
+                        meta.tone === 'purple' && 'bg-violet-400/10',
+                        meta.tone === 'green' && 'bg-lime/10',
+                        meta.tone === 'yellow' && 'bg-amber-400/10',
+                        meta.color,
+                      )}>
+                        <Icon size={16} />
                       </div>
-                      <p className="mt-1.5 text-xs font-semibold text-slate-200">{m.title}</p>
-                      <p className="mt-1.5 line-clamp-2 text-[11px] leading-5 text-slate-500">{m.summary}</p>
-                      <div className="mt-2 flex items-center gap-3 text-[10px] text-slate-600">
-                        <span>{Math.round(m.confidence * 100)}% confidence</span>
-                        <span>·</span>
-                        <span>{m.uses} recall{m.uses === 1 ? '' : 's'}</span>
-                        {m.updated_at && <><span>·</span><span>{relativeTime(m.updated_at)}</span></>}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-[9px] text-slate-600">{m.id}</span>
+                          <Badge tone={meta.tone}>{meta.label}</Badge>
+                          <Badge tone={toneForStatus(m.status)}>{m.status}</Badge>
+                        </div>
+                        <p className="mt-1.5 text-xs font-semibold text-slate-200">{m.title}</p>
+                        <p className="mt-1.5 line-clamp-2 text-[11px] leading-5 text-slate-500">{m.summary}</p>
+                        <div className="mt-2 flex items-center gap-3 text-[10px] text-slate-600">
+                          <span>{Math.round(m.confidence * 100)}% confidence</span>
+                          <span>·</span>
+                          <span>{m.uses} recall{m.uses === 1 ? '' : 's'}</span>
+                          {m.updated_at && <><span>·</span><span>{relativeTime(m.updated_at)}</span></>}
+                        </div>
                       </div>
-                    </div>
-                    <div className={cx('mt-2 shrink-0 transition-colors', isSelected ? 'text-lime' : 'text-slate-700')}>
-                      <ArrowUpRight size={15} />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                      <div className={cx('mt-2 shrink-0 transition-colors', isSelected ? 'text-lime' : 'text-slate-700')}>
+                        <ArrowUpRight size={15} />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
-          <div className="border-t border-line px-5 py-3 text-[10px] text-slate-600">
+          <div className="border-t border-line px-5 py-3 text-[10px] text-slate-600 bg-[#0b1016] shrink-0">
             Showing {memories.length} memor{memories.length === 1 ? 'y' : 'ies'}
+            <span className="float-right flex items-center gap-1">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-lime" /> Live
+            </span>
           </div>
         </div>
 
         {/* ---------- Right: detail ---------- */}
-        <div className="space-y-4">
-          {detail.loading ? (
+        <div className="space-y-4 xl:sticky xl:top-24 max-h-[80vh] overflow-y-auto">
+          {detail.loading && !detail.data ? (
             <div className="card">
               <LoadingSpinner label="Loading detail…" />
             </div>

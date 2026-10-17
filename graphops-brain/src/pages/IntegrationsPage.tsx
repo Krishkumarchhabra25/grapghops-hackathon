@@ -69,42 +69,7 @@ const INITIAL: Integration[] = [
     icon: BellRing,
     scopes: ['incidents:read', 'incidents:write', 'schedules:read'],
   },
-  {
-    id: 'slack',
-    name: 'Slack',
-    category: 'Communication',
-    description: 'Send investigation summaries and approval requests to Slack.',
-    connected: false,
-    detail: 'Not connected',
-    docsUrl: 'https://api.slack.com/',
-    color: '#f4a261',
-    icon: MessageSquare,
-    scopes: ['chat:write', 'channels:read'],
-  },
-  {
-    id: 'linear',
-    name: 'Linear',
-    category: 'Project management',
-    description: 'Create follow-up issues from verified root causes.',
-    connected: false,
-    detail: 'Not connected',
-    docsUrl: 'https://developers.linear.app/',
-    color: '#8bc9ff',
-    icon: LayoutList,
-    scopes: ['issues:create', 'teams:read'],
-  },
-  {
-    id: 'sentry',
-    name: 'Sentry',
-    category: 'Observability',
-    description: 'Correlate exceptions with deployments and service dependencies.',
-    connected: false,
-    detail: 'Not connected',
-    docsUrl: 'https://docs.sentry.io/api/',
-    color: '#ff9eaa',
-    icon: AlertCircle,
-    scopes: ['events:read', 'projects:read'],
-  },
+
 ];
 
 const FILTER_TABS = ['All', 'Connected', 'Not connected'] as const;

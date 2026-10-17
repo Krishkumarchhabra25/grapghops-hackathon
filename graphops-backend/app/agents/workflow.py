@@ -285,7 +285,8 @@ async def step_6_hypothesize(ws: str, run_id: str, state: dict) -> None:
         for r in findings_res.result_set
     ]
 
-    result = await llm_helpers.hypothesize(
+    # 1. Call LLM and unpack result + usage
+    result, usage = await llm_helpers.hypothesize(
         incident=incident,
         findings=findings,
         memories=state.get('memories', []),
@@ -293,6 +294,24 @@ async def step_6_hypothesize(ws: str, run_id: str, state: dict) -> None:
         evidence_path=state.get('evidence_path'),
     )
 
+    # 2. Calculate Cost (Grok: $2 per 1M input, $6 per 1M output)
+    input_cost = (usage['input_tokens'] * 2.0) / 1_000_000
+    output_cost = (usage['output_tokens'] * 6.0) / 1_000_000
+    total_cost = input_cost + output_cost
+    total_tokens = usage['input_tokens'] + usage['output_tokens']
+
+    # 3. Persist usage dynamically to the AgentRun node
+    await g.query(
+        """
+        MATCH (r:AgentRun {id:$id})
+        SET r.tokens = coalesce(r.tokens, 0) + $tokens,
+            r.cost_usd = coalesce(r.cost_usd, 0.0) + $cost,
+            r.updated_at = $now
+        """,
+        {'id': run_id, 'tokens': total_tokens, 'cost': total_cost, 'now': now_ms()}
+    )
+
+    # 4. Save hypotheses
     for h in (result.get('hypotheses') or []):
         claim = str(h.get('claim', ''))[:1000]
         if not claim:
@@ -316,7 +335,6 @@ async def step_6_hypothesize(ws: str, run_id: str, state: dict) -> None:
         })
 
     state['recommended_fix_id'] = result.get('recommended_fix_id')
-
 
 async def step_7_propose_action(ws: str, run_id: str, state: dict) -> None:
     """

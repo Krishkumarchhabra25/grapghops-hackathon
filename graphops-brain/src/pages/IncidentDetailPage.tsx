@@ -75,7 +75,6 @@ export function IncidentDetailPage() {
         incident_id: inc.id,
       });
       notify(`Investigation started (${res.run_id})`);
-      // Route to the run detail page — stub today, real page next.
       navigate(`/runs/${res.run_id}`);
     } catch (e: any) {
       notify(e?.message || 'Failed to start investigation', 'error');
@@ -85,7 +84,9 @@ export function IncidentDetailPage() {
   };
 
   // ---------- loading / error / not found ----------
-  if (detail.loading) {
+  // CRITICAL FIX: Only show the full-page spinner on the INITIAL load.
+  // If we already have data, let the background poll update it silently.
+  if (detail.loading && !detail.data) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <LoadingSpinner label="Loading incident…" />
@@ -126,7 +127,7 @@ export function IncidentDetailPage() {
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="font-mono text-xs text-slate-500">{inc.id}</span>
             <Badge tone={toneForSeverity(inc.severity)}>{inc.severity} severity</Badge>
-                     <Badge tone={toneForStatus(inc.status)}>{inc.status}</Badge>
+            <Badge tone={toneForStatus(inc.status)}>{inc.status}</Badge>
             <span className="flex items-center gap-1.5 rounded-full border border-[#28402d] bg-[#132018] px-2 py-0.5 text-[9px] font-semibold text-lime">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-lime" />
               LIVE
@@ -212,8 +213,8 @@ export function IncidentDetailPage() {
       {/* Main grid */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.35fr_1fr]">
         {/* Left: tabs */}
-        <div className="card overflow-hidden">
-          <div className="flex gap-5 border-b border-line px-5">
+        <div className="card overflow-hidden flex flex-col">
+          <div className="flex gap-5 border-b border-line px-5 shrink-0">
             {(['Evidence', 'Related', 'Timeline'] as Tab[]).map(t => (
               <button
                 key={t}
@@ -228,153 +229,157 @@ export function IncidentDetailPage() {
             ))}
           </div>
 
-          {tab === 'Evidence' && (
-            <div className="p-5">
-              <SectionHeading
-                title="Investigation evidence"
-                subtitle="Facts and hypotheses linked to this incident"
-                action={hypothesis?.confidence != null ? (
-                  <Badge tone="purple">{Math.round(hypothesis.confidence * 100)}% confidence</Badge>
-                ) : undefined}
-              />
-
-              {inc.findings.length === 0 ? (
-                <EmptyState
-                  icon={FileSearch}
-                  title="No findings yet"
-                  description="Start an investigation to gather evidence from the graph."
-                  action={
-                    <button className="btn-primary" onClick={startInvestigation} disabled={starting}>
-                      <Sparkles size={13} /> Start investigation
-                    </button>
-                  }
+          {/* UI FIX: Added max-h and overflow-y-auto so large lists scroll internally instead of stretching the whole page */}
+          <div className="flex-1 overflow-y-auto max-h-[600px]">
+            {tab === 'Evidence' && (
+              <div className="p-5">
+                <SectionHeading
+                  title="Investigation evidence"
+                  subtitle="Facts and hypotheses linked to this incident"
+                  action={hypothesis?.confidence != null ? (
+                    <Badge tone="purple">{Math.round(hypothesis.confidence * 100)}% confidence</Badge>
+                  ) : undefined}
                 />
-              ) : (
-                <div className="space-y-3">
-                  {inc.findings.map(f => (
-                    <div key={f.id} className="rounded-xl border border-line bg-[#0f151d] p-3.5">
-                      <div className="flex items-start gap-3">
-                        <div className={cx(
-                          'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                          f.kind === 'hypothesis' ? 'bg-violet-400/10 text-violet-300'
-                            : 'bg-sky-400/10 text-sky-300',
-                        )}>
-                          {f.kind === 'hypothesis' ? <WandSparkles size={15} /> : <Network size={15} />}
+
+                {inc.findings.length === 0 ? (
+                  <EmptyState
+                    icon={FileSearch}
+                    title="No findings yet"
+                    description="Start an investigation to gather evidence from the graph."
+                    action={
+                      <button className="btn-primary" onClick={startInvestigation} disabled={starting}>
+                        <Sparkles size={13} /> Start investigation
+                      </button>
+                    }
+                  />
+                ) : (
+                  <div className="space-y-3">
+                    {inc.findings.map(f => (
+                      <div key={f.id} className="rounded-xl border border-line bg-[#0f151d] p-3.5">
+                        <div className="flex items-start gap-3">
+                          <div className={cx(
+                            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                            f.kind === 'hypothesis' ? 'bg-violet-400/10 text-violet-300'
+                              : 'bg-sky-400/10 text-sky-300',
+                          )}>
+                            {f.kind === 'hypothesis' ? <WandSparkles size={15} /> : <Network size={15} />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs font-semibold">
+                                {f.kind === 'hypothesis' ? 'Hypothesis' : 'Fact'}
+                              </p>
+                              <Badge tone={f.verification === 'unverified_hypothesis' ? 'yellow' : 'green'}>
+                                {f.verification === 'unverified_hypothesis' ? 'Unverified' : 'Retrieved'}
+                              </Badge>
+                            </div>
+                            {/* UI FIX: Added break-words so long claims wrap properly */}
+                            <p className="mt-2 text-[11px] leading-5 text-slate-400 break-words whitespace-pre-wrap">{f.claim}</p>
+                            {f.confidence != null && (
+                              <p className="mt-2 text-[10px] text-slate-500">
+                                Confidence: {Math.round(f.confidence * 100)}%
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'Related' && (
+              <div className="p-5">
+                <SectionHeading
+                  title="Related incidents"
+                  subtitle="Incidents that share the same error signature"
+                />
+                {inc.related.length === 0 ? (
+                  <EmptyState
+                    icon={History}
+                    title="No related incidents"
+                    description="Nothing in the graph shares this incident's error signature."
+                  />
+                ) : (
+                  <div className="space-y-3">
+                    {inc.related.map(r => (
+                      <Link
+                        key={r.incident}
+                        to={`/incidents/${r.incident}`}
+                        className="flex items-center gap-3 rounded-xl border border-line bg-[#0f151d] p-3.5 hover:border-slate-600"
+                      >
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#202a35] text-slate-400 shrink-0">
+                          <History size={14} />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <p className="text-xs font-semibold">
-                              {f.kind === 'hypothesis' ? 'Hypothesis' : 'Fact'}
-                            </p>
-                            <Badge tone={f.verification === 'unverified_hypothesis' ? 'yellow' : 'green'}>
-                              {f.verification === 'unverified_hypothesis' ? 'Unverified' : 'Retrieved'}
-                            </Badge>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-[10px] text-slate-500">{r.incident}</span>
+                            <Badge tone={toneForStatus(r.status)}>{r.status}</Badge>
                           </div>
-                          <p className="mt-2 text-[11px] leading-5 text-slate-400">{f.claim}</p>
-                          {f.confidence != null && (
-                            <p className="mt-2 text-[10px] text-slate-500">
-                              Confidence: {Math.round(f.confidence * 100)}%
+                          <p className="mt-1 truncate text-xs font-semibold text-slate-200">{r.title}</p>
+                          {r.fixes.length > 0 && (
+                            <p className="mt-1 text-[10px] text-slate-500">
+                              Fix applied: {r.fixes[0]}
                             </p>
                           )}
                         </div>
-                      </div>
+                        <ArrowUpRight size={13} className="text-slate-600" />
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'Timeline' && (
+              <div className="space-y-4 p-5">
+                {inc.started_at && (
+                  <div className="flex gap-3">
+                    <div className="w-16 shrink-0 pt-0.5 font-mono text-[10px] text-slate-600">
+                      {formatClock(inc.started_at)}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === 'Related' && (
-            <div className="p-5">
-              <SectionHeading
-                title="Related incidents"
-                subtitle="Incidents that share the same error signature"
-              />
-              {inc.related.length === 0 ? (
-                <EmptyState
-                  icon={History}
-                  title="No related incidents"
-                  description="Nothing in the graph shares this incident's error signature."
-                />
-              ) : (
-                <div className="space-y-3">
-                  {inc.related.map(r => (
-                    <Link
-                      key={r.incident}
-                      to={`/incidents/${r.incident}`}
-                      className="flex items-center gap-3 rounded-xl border border-line bg-[#0f151d] p-3.5 hover:border-slate-600"
-                    >
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#202a35] text-slate-400">
-                        <History size={14} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-[10px] text-slate-500">{r.incident}</span>
-                          <Badge tone={toneForStatus(r.status)}>{r.status}</Badge>
-                        </div>
-                        <p className="mt-1 truncate text-xs font-semibold text-slate-200">{r.title}</p>
-                        {r.fixes.length > 0 && (
-                          <p className="mt-1 text-[10px] text-slate-500">
-                            Fix applied: {r.fixes[0]}
-                          </p>
-                        )}
-                      </div>
-                      <ArrowUpRight size={13} className="text-slate-600" />
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === 'Timeline' && (
-            <div className="space-y-4 p-5">
-              {inc.started_at && (
-                <div className="flex gap-3">
-                  <div className="w-16 shrink-0 pt-0.5 font-mono text-[10px] text-slate-600">
-                    {formatClock(inc.started_at)}
+                    <div className="relative flex-1 border-l border-line pb-2 pl-4">
+                      <span className="absolute -left-[4px] top-1 h-2 w-2 rounded-full bg-rose-400" />
+                      <p className="text-xs font-semibold">Incident started</p>
+                      <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                        {inc.title}
+                      </p>
+                    </div>
                   </div>
-                  <div className="relative flex-1 border-l border-line pb-2 pl-4">
-                    <span className="absolute -left-[4px] top-1 h-2 w-2 rounded-full bg-rose-400" />
-                    <p className="text-xs font-semibold">Incident started</p>
-                    <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                      {inc.title}
-                    </p>
+                )}
+                {inc.run_ids.map(runId => (
+                  <div key={runId} className="flex gap-3">
+                    <div className="w-16 shrink-0 pt-0.5 font-mono text-[10px] text-slate-600">run</div>
+                    <div className="relative flex-1 border-l border-line pb-2 pl-4">
+                      <span className="absolute -left-[4px] top-1 h-2 w-2 rounded-full bg-violet-300" />
+                      <p className="text-xs font-semibold">Investigation</p>
+                      <Link to={`/runs/${runId}`} className="mt-1 inline-flex items-center gap-1 font-mono text-[10px] text-lime hover:underline">
+                        {runId} <ArrowUpRight size={10} />
+                      </Link>
+                    </div>
                   </div>
-                </div>
-              )}
-              {inc.run_ids.map(runId => (
-                <div key={runId} className="flex gap-3">
-                  <div className="w-16 shrink-0 pt-0.5 font-mono text-[10px] text-slate-600">run</div>
-                  <div className="relative flex-1 border-l border-line pb-2 pl-4">
-                    <span className="absolute -left-[4px] top-1 h-2 w-2 rounded-full bg-violet-300" />
-                    <p className="text-xs font-semibold">Investigation</p>
-                    <Link to={`/runs/${runId}`} className="mt-1 inline-flex items-center gap-1 font-mono text-[10px] text-lime hover:underline">
-                      {runId} <ArrowUpRight size={10} />
-                    </Link>
+                ))}
+                {inc.resolved_at && (
+                  <div className="flex gap-3">
+                    <div className="w-16 shrink-0 pt-0.5 font-mono text-[10px] text-slate-600">
+                      {formatClock(inc.resolved_at)}
+                    </div>
+                    <div className="relative flex-1 border-l border-line pb-2 pl-4">
+                      <span className="absolute -left-[4px] top-1 h-2 w-2 rounded-full bg-lime" />
+                      <p className="text-xs font-semibold text-lime">Incident resolved</p>
+                      {inc.root_cause && (
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500">{inc.root_cause}</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {inc.resolved_at && (
-                <div className="flex gap-3">
-                  <div className="w-16 shrink-0 pt-0.5 font-mono text-[10px] text-slate-600">
-                    {formatClock(inc.resolved_at)}
-                  </div>
-                  <div className="relative flex-1 border-l border-line pb-2 pl-4">
-                    <span className="absolute -left-[4px] top-1 h-2 w-2 rounded-full bg-lime" />
-                    <p className="text-xs font-semibold text-lime">Incident resolved</p>
-                    {inc.root_cause && (
-                      <p className="mt-1 text-[11px] leading-5 text-slate-500">{inc.root_cause}</p>
-                    )}
-                  </div>
-                </div>
-              )}
-              {!inc.started_at && inc.run_ids.length === 0 && !inc.resolved_at && (
-                <EmptyState icon={Clock3} title="No events yet" description="Nothing has happened on this incident." />
-              )}
-            </div>
-          )}
+                )}
+                {!inc.started_at && inc.run_ids.length === 0 && !inc.resolved_at && (
+                  <EmptyState icon={Clock3} title="No events yet" description="Nothing has happened on this incident." />
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Right: side panel */}
