@@ -4,7 +4,9 @@
  *
  * Base URL is configurable via VITE_API_BASE_URL (defaults to localhost:8000).
  */
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:8000';
+const rawBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:8000';
+// Strip trailing slash to prevent double-slashes in requests
+const BASE_URL = rawBaseUrl.replace(/\/$/, '');
 
 export class ApiError extends Error {
   code: string;
@@ -30,9 +32,11 @@ type RequestOptions = {
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: opts.method || 'GET',
-    credentials: 'include',
+    credentials: 'include', // Crucial for cookies
+    mode: 'cors',           // Explicitly enforce CORS
     headers: {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       ...(opts.headers || {}),
     },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
@@ -159,17 +163,10 @@ export const memoryApi = {
 };
 
 // ---- Knowledge ----
-// Backend endpoints (see app/api/knowledge.py):
-//   POST /ask                          -> AskResponse
-//   GET  /knowledge/sources            -> DocumentListResponse   (status?, type?, limit<=200)
-//   GET  /knowledge/sources/{doc_id}   -> DocumentDetail
-//   GET  /knowledge/search             -> SearchResponse         (q required, limit<=50)
 export const knowledgeApi = {
   ask: (question: string) =>
     request<any>('/api/v1/ask', { method: 'POST', body: { question } }),
 
-  // Server-side filters (status/type) + pagination (limit) are supported.
-  // Passing no `limit` defaults to 50 on the backend.
   sources: (params?: { status?: string; type?: string; limit?: number }) => {
     const qs = new URLSearchParams();
     if (params?.status) qs.set('status', params.status);
@@ -183,8 +180,6 @@ export const knowledgeApi = {
   document: (id: string) =>
     request<any>(`/api/v1/knowledge/sources/${id}`),
 
-  // Server performs LLM query rewrite internally — `q` is min 1 char.
-  // Default limit on backend is 8 (max 50).
   search: (q: string, limit?: number) => {
     const qs = new URLSearchParams({ q });
     if (limit != null) qs.set('limit', String(limit));
@@ -203,10 +198,6 @@ export const servicesApi = {
 };
 
 // ---- Audit ----
-// Backend endpoints (see app/api/audit.py):
-//   GET /audit                -> AuditListResponse   (actor?, verb?, target_id?, since?, until?, limit<=500, offset)
-//   GET /audit/verbs          -> AuditVerbsResponse  (distinct verbs for dropdowns)
-//   GET /audit/{event_id}     -> AuditEventPublic
 export const auditApi = {
   list: (params?: { 
     actor?: string; 
@@ -238,12 +229,6 @@ export const auditApi = {
 export function openRunEvents(runId: string, lastEventId?: number): EventSource {
   const url = `${BASE_URL}/api/v1/runs/${runId}/events`;
   const es = new EventSource(url, { withCredentials: true });
-  if (lastEventId != null) {
-    // EventSource does not let us set headers; Last-Event-ID is sent automatically
-    // on reconnect. For manual control, we pass it via a query param the server
-    // can read as a fallback — we add it here.
-    // (Optional: server can support ?last_event_id=)
-  }
   return es;
 }
 

@@ -32,23 +32,16 @@ async def lifespan(app: FastAPI):
 
     try:
         app.state.schema = await ensure_all()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.warning('schema setup skipped: %s', e)
 
-    # ---- Startup cleanup: mark orphaned runs as failed ----
-    # Any 'running' run right now is orphaned — nothing is executing it
-    # after a server restart. Preserve 'waiting_approval' runs (those are
-    # paused for a human decision, not stuck).
     try:
         cleaned = await cleanup_orphaned_runs(s.default_workspace_id)
         if cleaned > 0:
             log.info('Startup cleanup: marked %d orphaned runs as failed', cleaned)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.warning('orphaned run cleanup skipped: %s', e)
 
-    # ---- Start the stale-run watchdog in the background ----
-    # Catches runs that stall for any other reason (crash, unhandled
-    # exception inside a spawned task). Runs every 2 minutes.
     watchdog_task = asyncio.create_task(
         stale_run_watchdog(s.default_workspace_id)
     )
@@ -59,7 +52,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # ---- Shutdown: cancel the watchdog cleanly ----
     watchdog_task.cancel()
     try:
         await watchdog_task
@@ -74,9 +66,33 @@ def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(title=s.app_name, version=s.app_version, lifespan=lifespan)
 
+    # 1. Get origins from config, but ensure it's a valid list
+    origins = getattr(s, 'cors_origin_list', [])
+    if not isinstance(origins, list):
+        origins = [origins]
+
+    # 2. Force-add your production frontend so it NEVER fails due to .env issues
+    production_frontend = "https://graphops.krishchhabra.com"
+    if production_frontend not in origins:
+        origins.append(production_frontend)
+
+    # 3. Add localhost for dev (just in case)
+    if "http://localhost:5173" not in origins:
+        origins.append("http://localhost:5173")
+        
+    # 4. Add the API domain (sometimes needed if frontend calls itself)
+    if "https://api.graphops.krishchhabra.com" not in origins:
+        origins.append("https://api.graphops.krishchhabra.com")
+
+    # Remove wildcard if present, as it breaks allow_credentials=True
+    if "*" in origins:
+        origins.remove("*")
+
+    log.info(f"CORS Allowed Origins: {origins}")
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=s.cors_origin_list,
+        allow_origins=origins,
         allow_credentials=True,
         allow_methods=['*'],
         allow_headers=['*'],
@@ -130,9 +146,7 @@ def create_app() -> FastAPI:
 
 app = create_app()
 
-
 if __name__ == '__main__':
     import uvicorn
-
     s = get_settings()
     uvicorn.run('app.main:app', host=s.host, port=s.port, reload=s.env == 'development')
